@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "btashaders",
+	"version": "${version}",
+	"name": "BTA Shaders",
+	"description": "Shader pipeline mod for Better than Adventure! 8.0.1: shadow maps, G-buffers and composite passes.",
+	"authors": [
+		"mtureyen"
+	],
+	"contact": {
+		"homepage": "",
+		"sources": ""
+	},
+	"icon": "icon.png",
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"io.github.mtureyen.btashaders.BtaShaders"
+		]
+	},
+	"mixins": [
+		"btashaders.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=${fabricloader}",
+		"minecraft": "*",
+		"java": ">=${java}"
+	},
+	"suggests": {
+		"modmenu": ">=${modmenu}"
+	}
+}

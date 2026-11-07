@@ -1,0 +1,15 @@
+.gradle/
+.idea/
+.vscode/
+bin/
+build/
+out/
+run/
+run-server/
+
+# Decompiled BTA game code: NEVER commit (it's BTA's code, not ours)
+decompiled/
+*-sources.jar
+*.log
+.DS_Store
+Thumbs.db
