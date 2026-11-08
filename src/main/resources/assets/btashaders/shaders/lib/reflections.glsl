@@ -99,8 +99,14 @@ vec3 applyReflections(vec3 linearColor, vec3 viewPos, vec4 gNormal, vec4 gData) 
     fresnel = mix(f0, fresnel, smoothness * smoothness) * smoothness;
 
     vec3 reflection = environmentColor(dir, gData.r);
-    vec4 hit = traceReflection(viewPos, normalize(mat3(btsView) * dir), xi.x);
-    reflection = mix(reflection, hit.rgb, hit.a);
+    if (code != MAT_TRANSLUCENT) {
+        // Glass and ice: environment only. Their mirror-like grazing reflections made the screen-space
+        // trace flip between hit and miss every frame (visible flicker under glass roofs).
+        // Smooth surfaces need little start jitter (less sparkle); rough ones need it for the blur.
+        float jitter = 0.5 + (xi.x - 0.5) * mix(0.3, 1.0, clamp(roughness * 2.5, 0.0, 1.0));
+        vec4 hit = traceReflection(viewPos, normalize(mat3(btsView) * dir), jitter);
+        reflection = mix(reflection, hit.rgb, hit.a);
+    }
 
     if (metal) {
         // Metals: the reflection takes the surface's own color and replaces most of the diffuse.

@@ -90,4 +90,11 @@ void main() {
     if (FragColor.a < uAlphaTest) {
         discard;
     }
+    if (btsWaterPass == 1 && btsLightingOn == 1 && FragColor.a < 0.999
+        && texelFetch(btsOpaqueDepth, ivec2(gl_FragCoord.xy), 0).r >= 1.0) {
+        // Tinted glass with open sky behind it: our sky is drawn later, only behind depth == 1 pixels,
+        // so the glass would blend over black. Blend it over the sky here and write it opaque.
+        vec3 behind = skyReflectionColor(normalize(RelPos)) * mix(0.15, 1.0, skyFactor(LightMapCoord.y));
+        FragColor = vec4(mix(behind, FragColor.rgb, FragColor.a), 1.0);
+    }
 }
