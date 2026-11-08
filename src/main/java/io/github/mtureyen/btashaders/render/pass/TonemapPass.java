@@ -122,10 +122,10 @@ public final class TonemapPass {
 		boolean shadowsValid = shadows.isShadowMapValid();
 		boolean colored = shadowsValid && shadows.isColoredShadowsValid();
 		GL41.glActiveTexture(PassUtil.GL_TEXTURE0 + LightingState.OPAQUE_COLOR_UNIT);
-		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, shadowsValid ? shadows.getDepthTexture() : 0);
+		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, shadowsValid ? shadows.getDepthTexture() : LightingState.placeholderShadow());
 		GL41.glBindSampler(LightingState.OPAQUE_COLOR_UNIT, shadowsValid ? shadows.getCompareSampler() : 0);
 		GL41.glActiveTexture(PassUtil.GL_TEXTURE0 + LightingState.SHADOW_TRANSLUCENT_UNIT);
-		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, colored ? shadows.getTranslucentDepthTexture() : 0);
+		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, colored ? shadows.getTranslucentDepthTexture() : LightingState.placeholderShadow());
 		GL41.glBindSampler(LightingState.SHADOW_TRANSLUCENT_UNIT, colored ? shadows.getCompareSampler() : 0);
 		GL41.glActiveTexture(PassUtil.GL_TEXTURE0 + LightingState.SHADOW_COLOR_UNIT);
 		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, colored ? shadows.getShadowColorTexture() : 0);

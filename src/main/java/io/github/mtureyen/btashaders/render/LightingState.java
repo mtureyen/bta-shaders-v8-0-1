@@ -90,9 +90,9 @@ public final class LightingState {
 		boolean shadowsValid = this.shadows.isShadowMapValid();
 		boolean coloredValid = shadowsValid && this.shadows.isColoredShadowsValid();
 		int compare = this.shadows.getCompareSampler();
-		bindUnit(SHADOW_UNIT, shadowsValid ? this.shadows.getDepthTexture() : 0, shadowsValid ? compare : 0);
+		bindUnit(SHADOW_UNIT, shadowsValid ? this.shadows.getDepthTexture() : placeholderShadow(), shadowsValid ? compare : 0);
 		bindUnit(SHADOW_RAW_UNIT, shadowsValid ? this.shadows.getDepthTexture() : 0, 0);
-		bindUnit(SHADOW_TRANSLUCENT_UNIT, coloredValid ? this.shadows.getTranslucentDepthTexture() : 0, coloredValid ? compare : 0);
+		bindUnit(SHADOW_TRANSLUCENT_UNIT, coloredValid ? this.shadows.getTranslucentDepthTexture() : placeholderShadow(), coloredValid ? compare : 0);
 		bindUnit(SHADOW_TRANSLUCENT_RAW_UNIT, coloredValid ? this.shadows.getTranslucentDepthTexture() : 0, 0);
 		bindUnit(SHADOW_COLOR_UNIT, coloredValid ? this.shadows.getShadowColorTexture() : 0, 0);
 		int pbrNormal = PbrAtlas.texture(PbrAtlas.NORMAL_LAYER);
@@ -115,6 +115,29 @@ public final class LightingState {
 		this.ready = true;
 	}
 
+	private static int placeholderShadow = 0;
+
+	/**
+	 * 1x1 depth texture (depth 1 = fully lit) with depth comparison enabled on the texture itself. Bound
+	 * to the units our shaders read through sampler2DShadow whenever there is no real shadow map: with
+	 * no texture there, drivers report "shadow sampler on a non-depth texture" for every draw call, and
+	 * with GL debug logging on (BTA enables it on GL 4.3) that floods the log and costs most of the fps.
+	 */
+	public static int placeholderShadow() {
+		if (placeholderShadow == 0) {
+			placeholderShadow = GL41.glGenTextures();
+			GL41.glBindTexture(GL41.GL_TEXTURE_2D, placeholderShadow);
+			GL41.glTexImage2D(GL41.GL_TEXTURE_2D, 0, GL41.GL_DEPTH_COMPONENT32F, 1, 1, 0, GL41.GL_DEPTH_COMPONENT,
+				GL41.GL_FLOAT, new float[]{1.0F});
+			GL41.glTexParameteri(GL41.GL_TEXTURE_2D, GL41.GL_TEXTURE_MIN_FILTER, GL41.GL_NEAREST);
+			GL41.glTexParameteri(GL41.GL_TEXTURE_2D, GL41.GL_TEXTURE_MAG_FILTER, GL41.GL_NEAREST);
+			GL41.glTexParameteri(GL41.GL_TEXTURE_2D, GL41.GL_TEXTURE_COMPARE_MODE, GL41.GL_COMPARE_REF_TO_TEXTURE);
+			GL41.glTexParameteri(GL41.GL_TEXTURE_2D, GL41.GL_TEXTURE_COMPARE_FUNC, GL41.GL_LEQUAL);
+			GL41.glBindTexture(GL41.GL_TEXTURE_2D, 0);
+		}
+		return placeholderShadow;
+	}
+
 	private static void bindUnit(int unit, int texture, int sampler) {
 		GL41.glActiveTexture(GL_TEXTURE0 + unit);
 		GL41.glBindTexture(GL41.GL_TEXTURE_2D, texture);
@@ -124,7 +147,8 @@ public final class LightingState {
 	/** End of the frame: nothing of ours stays bound on units 4.. (they may be render targets next frame). */
 	public static void clearUnits() {
 		for (int unit = SHADOW_UNIT; unit <= LAST_UNIT; unit++) {
-			bindUnit(unit, 0, 0);
+			boolean shadowSampler = unit == SHADOW_UNIT || unit == SHADOW_TRANSLUCENT_UNIT;
+			bindUnit(unit, shadowSampler ? placeholderShadow() : 0, 0);
 		}
 		GL41.glActiveTexture(GL_TEXTURE0);
 	}

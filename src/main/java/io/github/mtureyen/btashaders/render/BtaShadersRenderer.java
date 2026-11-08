@@ -447,6 +447,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		this.water.reload();
 		this.tonemap.reload();
 		this.shadows.reload(MOD_SHADERS);
+		LightingState.clearUnits(); // valid bindings (placeholder shadow map) before the first world frame
 		OpenGLHelper.checkError("btashaders reload");
 	}
 
