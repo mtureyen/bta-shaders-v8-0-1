@@ -12,6 +12,8 @@
     "ChunkRendererMultiDrawMixin",
     "EntityRendererDispatcherMixin",
     "EntityRendererMixin",
+    "FontRenderBufferMixin",
+    "FontRendererDefaultMixin",
     "GLRendererMixin",
     "HudIngameMixin",
     "MinecraftMixin",
