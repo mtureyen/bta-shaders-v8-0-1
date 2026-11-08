@@ -17,6 +17,7 @@ public final class GpuProfiler {
 		WORLD("world"),
 		PREPARE("prepare"),
 		BLOOM("bloom+exposure"),
+		VL("light shafts"),
 		TONEMAP("tonemap"),
 		TAA("taa"),
 		POST("post+composite");

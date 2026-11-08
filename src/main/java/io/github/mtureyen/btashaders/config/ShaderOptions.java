@@ -79,6 +79,7 @@ public final class ShaderOptions {
 			ShaderOption.toggle("VOLUMETRIC_LIGHT", "Volumetric Light"),
 			ShaderOption.slider("VL_STRENGTH", "Light Shaft Strength", 0.0F, 0.3F, 0.01F),
 			ShaderOption.samples("VL_STEPS", "Light Shaft Quality", 4, 32),
+			ShaderOption.toggle("VL_HALF_RES", "Half-Res Light Shafts"),
 			ShaderOption.slider("ATMOS_STRENGTH", "Distance Haze", 0.0F, 0.4F, 0.01F),
 			ShaderOption.toggle("BORDER_FOG", "Border Fog"),
 			ShaderOption.slider("BORDER_FOG_START", "Border Fog Start", 0.3F, 0.9F, 0.01F),
@@ -203,6 +204,7 @@ public final class ShaderOptions {
 				v.put("CLOUD_STEPS", 10F);
 				v.put("VOLUMETRIC_LIGHT", 1F);
 				v.put("VL_STEPS", 8F);
+				v.put("VL_HALF_RES", 1F);
 				v.put("REFLECTIONS", 1F);
 				v.put("SSR_STEPS", 14F);
 				v.put("WATER_SSR_STEPS", 16F);
@@ -212,7 +214,7 @@ public final class ShaderOptions {
 				// The shader defaults.
 				for (String key : new String[]{"shadow.resolution", "SHADOW_SAMPLES", "FOLIAGE_SHADOW_SAMPLES",
 					"PCSS", "ENTITY_SHADOWS", "COLORED_SHADOWS", "SSAO", "SSAO_SAMPLES", "CLOUD_STEPS", "VOLUMETRIC_LIGHT",
-					"VL_STEPS", "REFLECTIONS", "SSR_STEPS", "WATER_SSR_STEPS", "RAIN_PUDDLES"}) {
+					"VL_STEPS", "VL_HALF_RES", "REFLECTIONS", "SSR_STEPS", "WATER_SSR_STEPS", "RAIN_PUDDLES"}) {
 					ShaderOption option = find(key);
 					if (option != null) {
 						v.put(key, option.defaultValue());
@@ -231,6 +233,7 @@ public final class ShaderOptions {
 				v.put("CLOUD_STEPS", 20F);
 				v.put("VOLUMETRIC_LIGHT", 1F);
 				v.put("VL_STEPS", 20F);
+				v.put("VL_HALF_RES", 0F);
 				v.put("REFLECTIONS", 1F);
 				v.put("SSR_STEPS", 32F);
 				v.put("WATER_SSR_STEPS", 40F);

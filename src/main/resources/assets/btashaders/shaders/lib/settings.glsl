@@ -317,6 +317,9 @@
 #ifndef VOLUMETRIC_LIGHT
 #define VOLUMETRIC_LIGHT 1           // shadow-map raymarched light shafts (0 = old screen-space god rays)
 #endif
+#ifndef VL_HALF_RES
+#define VL_HALF_RES 1                // light shafts at half resolution (faster, softer)
+#endif
 #ifndef VL_STEPS
 #define VL_STEPS 14
 #endif
