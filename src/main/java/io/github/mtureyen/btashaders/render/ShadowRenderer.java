@@ -30,6 +30,7 @@ import net.minecraft.core.entity.Entity;
 import java.util.List;
 import net.minecraft.core.world.pos.TilePos;
 import net.minecraft.core.world.weather.IPrecipitation;
+import net.minecraft.core.world.weather.WeatherSnow;
 import net.minecraft.core.world.weather.Weather;
 import net.minecraft.core.world.weather.WeatherManager;
 import org.joml.Matrix4d;
@@ -106,6 +107,9 @@ public class ShadowRenderer {
 	private float sunHeight = 1.0F;
 	/** 0..1 rain/storm strength. */
 	private float rain = 0.0F;
+	/** 0..1 how wet the world is: rises while it rains (not snows), dries slowly afterwards. */
+	private float wetness = 0.0F;
+	private long lastWetnessUpdate = 0L;
 	/** Direct light color * intensity (already faded at the horizon and by rain). */
 	private final Vector3f directColor = new Vector3f();
 	/** Tint applied to the sky-lit ambient part. */
@@ -420,6 +424,7 @@ public class ShadowRenderer {
 			strength = MOON_STRENGTH;
 		}
 		this.rain = computeRain();
+		this.updateWetness();
 		// Fade out as the light approaches the horizon (long, unstable shadows) and swap sun<->moon smoothly.
 		float elevation = this.lightDirection.y;
 		float horizonFade = smoothstep(0.02F, 0.15F, elevation);
@@ -449,6 +454,23 @@ public class ShadowRenderer {
 			lerp(1.12F, 1.05F, day) - 0.08F * sunsetness);
 		// Rain: flatter, greyer ambient.
 		this.ambientTint.lerp(new Vector3f(0.95F, 0.97F, 1.0F), this.rain * 0.6F);
+	}
+
+	private void updateWetness() {
+		long now = System.nanoTime();
+		float dt = this.lastWetnessUpdate == 0L ? 0.0F : Math.min((now - this.lastWetnessUpdate) / 1.0e9F, 0.5F);
+		this.lastWetnessUpdate = now;
+		World world = this.mc.currentWorld;
+		boolean snowing = world != null && world.getCurrentWeather() instanceof WeatherSnow;
+		float target = snowing ? 0.0F : smoothstep(0.05F, 0.6F, this.rain);
+		// About 30 s to soak, 2 minutes to dry.
+		float rate = target > this.wetness ? 1.0F / 30.0F : 1.0F / 120.0F;
+		float step = rate * dt;
+		this.wetness += Math.max(-step, Math.min(step, target - this.wetness));
+	}
+
+	public float getWetness() {
+		return this.wetness;
 	}
 
 	private float computeRain() {
@@ -545,6 +567,7 @@ public class ShadowRenderer {
 		shader.uniformVec3f("btsDirectColor", this.directColor);
 		shader.uniformVec3f("btsAmbientTint", this.ambientTint);
 		shader.uniformFloat("btsRain", this.rain);
+		shader.uniformFloat("btsWetness", this.wetness);
 		shader.uniformInt("btsLightIsSun", this.lightIsSun ? 1 : 0);
 		shader.uniformFloat("btsSunHeight", this.sunHeight);
 		this.applyCameraUniforms(shader);

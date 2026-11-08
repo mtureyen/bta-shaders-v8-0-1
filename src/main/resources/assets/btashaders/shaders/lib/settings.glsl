@@ -175,6 +175,50 @@
 #define WATER_SPECULAR 2.5
 #endif
 
+// ---- Materials: specular, reflections, wetness (lib/surface.glsl, lib/reflections.glsl) ----
+#ifndef SPECULAR
+#define SPECULAR 1                   // GGX sun/moon highlights on smooth and wet surfaces
+#endif
+#ifndef SPECULAR_STRENGTH
+#define SPECULAR_STRENGTH 1.0
+#endif
+#ifndef REFLECTIONS
+#define REFLECTIONS 1                // screen-space + sky reflections on smooth/wet blocks
+#endif
+#ifndef SSR_STEPS
+#define SSR_STEPS 20
+#endif
+#ifndef REFLECTION_STRENGTH
+#define REFLECTION_STRENGTH 1.0
+#endif
+#ifndef SMOOTH_POLISHED
+#define SMOOTH_POLISHED 0.62         // polished stone, gem and quartz blocks
+#endif
+#ifndef SMOOTH_METAL
+#define SMOOTH_METAL 0.72            // iron, gold, steel blocks
+#endif
+#ifndef SMOOTH_GLASS
+#define SMOOTH_GLASS 0.9             // glass frames, ice
+#endif
+#ifndef RAIN_WETNESS
+#define RAIN_WETNESS 1               // surfaces under open sky get wet in rain
+#endif
+#ifndef RAIN_PUDDLES
+#define RAIN_PUDDLES 1
+#endif
+#ifndef PUDDLE_COVERAGE
+#define PUDDLE_COVERAGE 0.5          // 0..1 share of flat ground covered in heavy rain
+#endif
+#ifndef WET_DARKEN
+#define WET_DARKEN 0.35              // how much darker wet porous surfaces get
+#endif
+#ifndef WET_SMOOTHNESS
+#define WET_SMOOTHNESS 0.45          // smoothness of wet (non-puddle) surfaces
+#endif
+#ifndef RAIN_RIPPLES
+#define RAIN_RIPPLES 1
+#endif
+
 // ---- Ambient occlusion (prepare pass) ----
 #ifndef SSAO
 #define SSAO 1

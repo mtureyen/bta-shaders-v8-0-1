@@ -5,7 +5,11 @@ import net.minecraft.client.render.block.model.BlockModelCrossedSquares;
 import net.minecraft.core.block.Block;
 import net.minecraft.core.block.material.Material;
 import net.minecraft.core.block.material.Materials;
+import net.minecraft.core.block.material.MaterialLiquid;
 import net.minecraft.core.world.pos.TilePos;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Per-vertex material IDs for terrain (what Iris gets from block.properties / mc_Entity).
@@ -28,7 +32,13 @@ public final class MaterialContext {
 	public static final byte WATER = 3;
 	public static final byte LAVA = 4;
 	public static final byte EMISSIVE = 5;
-	public static final byte TRANSLUCENT_SOLID = 6; // glass, ice
+	public static final byte TRANSLUCENT_SOLID = 6; // glass, ice, other liquids
+	public static final byte METAL = 7;             // iron / gold / steel blocks
+	public static final byte POLISHED = 8;          // polished stone, gems, quartz, marble
+	public static final byte SNOW = 9;              // never gets wet
+
+	/** Per-block classification (block identity only; crossed plants are decided per model). */
+	private static final Map<Block<?>, Byte> CLASSES = new ConcurrentHashMap<>();
 
 	/** Off if our terrain shader isn't in use (stock BTA shaders need real normals). */
 	public static volatile boolean enabled = true;
@@ -48,26 +58,41 @@ public final class MaterialContext {
 			return;
 		}
 		Block<?> block = model.block;
-		Material mat = block.getMaterial();
 		crossed = model instanceof BlockModelCrossedSquares;
-		if (mat == Materials.WATER) {
-			material = WATER;
-		} else if (mat == Materials.LAVA) {
-			material = LAVA;
-		} else if (mat == Materials.LEAVES) {
-			material = LEAVES;
-		} else if (crossed || mat == Materials.PLANT || mat == Materials.VEGETABLE) {
-			material = PLANT;
-		} else if (block.emission > 0) {
-			material = EMISSIVE;
-		} else if (mat == Materials.GLASS || mat == Materials.ICE) {
-			material = TRANSLUCENT_SOLID;
-		} else {
-			material = DEFAULT;
-		}
+		material = crossed ? PLANT : CLASSES.computeIfAbsent(block, MaterialContext::classify);
 		emission = (byte) Math.max(0, Math.min(15, block.emission));
 		tileY = pos.y;
 		active = true;
+	}
+
+	private static byte classify(Block<?> block) {
+		Material mat = block.getMaterial();
+		if (mat == Materials.WATER) {
+			return WATER;
+		} else if (mat == Materials.LAVA) {
+			return LAVA;
+		} else if (mat == Materials.LEAVES) {
+			return LEAVES;
+		} else if (mat == Materials.PLANT || mat == Materials.VEGETABLE) {
+			return PLANT;
+		} else if (block.emission > 0) {
+			return EMISSIVE;
+		} else if (mat == Materials.GLASS || mat == Materials.ICE || mat instanceof MaterialLiquid) {
+			return TRANSLUCENT_SOLID;
+		} else if (mat == Materials.METAL || mat == Materials.IRON || mat == Materials.GOLD || mat == Materials.STEEL) {
+			return METAL;
+		} else if (mat == Materials.DIAMOND || mat == Materials.LAPIS || mat == Materials.OLIVINE
+			|| mat == Materials.QUARTZ || isPolished(block)) {
+			return POLISHED;
+		} else if (mat == Materials.SNOW || mat == Materials.TOP_SNOW) {
+			return SNOW;
+		}
+		return DEFAULT;
+	}
+
+	private static boolean isPolished(Block<?> block) {
+		String key = block.getKey();
+		return key != null && key.contains("polished");
 	}
 
 	public static void end() {

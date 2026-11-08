@@ -36,6 +36,8 @@ vec3 viewPosAt(vec2 uv) {
     return v.xyz / v.w;
 }
 
+#include "lib/reflections.glsl"
+
 // Normal-oriented horizon-ish AO (in the spirit of Complementary's depth-only SSAO).
 float ambientOcclusion(vec3 p, vec3 n) {
     float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))
@@ -80,9 +82,21 @@ void main() {
             n = normalize(mat3(btsView) * gbufferNormal(gNormal));
             int code = gbufferCode(gNormal);
             if (code == MAT_LEAVES || code == MAT_PLANT) strength *= SSAO_FOLIAGE;
+            if (code == MAT_WATER) strength *= 0.5;
             strength *= 1.0 - SSAO_SUN_REDUCTION * gData.b;
         }
         color *= mix(1.0, ambientOcclusion(p, n), strength);
+    }
+#endif
+
+#if REFLECTIONS
+    // Smooth and wet surfaces reflect the scene / sky (lib/reflections.glsl).
+    if (depth < 1.0 && depth > HAND_DEPTH && btsGBufferOn == 1 && isEyeInLiquid == 0) {
+        vec4 gData = texture(btsGData, TexCoords);
+        if (gData.a > 0.5) {
+            vec4 gNormal = texture(btsGNormal, TexCoords);
+            color = toGamma(applyReflections(toLinear(color), p, gNormal, gData));
+        }
     }
 #endif
 

@@ -25,9 +25,12 @@ vec3 materialColor(int code) {
     if (code == 4) return vec3(1.0, 0.4, 0.0);   // lava
     if (code == 5) return vec3(1.0, 1.0, 0.3);   // emissive
     if (code == 6) return vec3(0.6, 0.9, 1.0);   // glass / ice
-    if (code == 8) return vec3(0.9, 0.2, 0.9);   // entity
-    if (code == 9) return vec3(0.9, 0.6, 0.3);   // item / object
-    if (code == 10) return vec3(0.5, 0.5, 0.5);  // other
+    if (code == 7) return vec3(0.9, 0.8, 0.2);   // metal
+    if (code == 8) return vec3(0.9, 0.9, 1.0);   // polished
+    if (code == 9) return vec3(1.0, 1.0, 1.0);   // snow
+    if (code == 12) return vec3(0.9, 0.2, 0.9);  // entity
+    if (code == 13) return vec3(0.9, 0.6, 0.3);  // item / object
+    if (code == 14) return vec3(0.5, 0.5, 0.5);  // other
     return vec3(0.75);                            // default block
 }
 
@@ -89,8 +92,10 @@ void main() {
             color = materialColor(gbufferCode(gn));
         } else if (btsDebugView == 3) {
             color = vec3(gd.g, gd.g * 0.6 + gd.r * 0.3, gd.r);
-        } else {
+        } else if (btsDebugView == 4) {
             color = vec3(gd.b);
+        } else {
+            color = vec3(gbufferSmoothness(gn));
         }
     }
 

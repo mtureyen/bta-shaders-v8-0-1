@@ -260,6 +260,9 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		Shaders.TERRAIN.bind();
 		Shaders.TERRAIN.uniformInt("btsWaterPass", 1);
 		this.waterPassActive = true;
+		// Water and tinted glass write the G-buffer too, so screen-space passes see them instead of
+		// whatever lies underneath (their own reflections are done in the water shader).
+		this.gbuffer.setMrt(true);
 
 		GL41.glBindVertexArray(vao);
 		GL41.glUseProgram(program);
@@ -276,6 +279,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		int program = GL41.glGetInteger(GL41.GL_CURRENT_PROGRAM);
 		Shaders.TERRAIN.bind();
 		Shaders.TERRAIN.uniformInt("btsWaterPass", 0);
+		this.gbuffer.setMrt(false);
 		GL41.glUseProgram(program);
 		this.waterPassActive = false;
 	}
@@ -696,8 +700,8 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			BtaShaders.LOGGER.info("TAA {}", this.taaEnabled ? "on" : "off");
 		}
 		if (pressed(handle, KEY_DEBUG_VIEW, 4) && inWorld) {
-			this.debugView = (this.debugView + 1) % 5;
-			String[] names = {"off", "normals", "materials", "light levels", "sun visibility"};
+			this.debugView = (this.debugView + 1) % 6;
+			String[] names = {"off", "normals", "materials", "light levels", "sun visibility", "smoothness"};
 			BtaShaders.LOGGER.info("G-buffer debug view: {}", names[this.debugView]);
 		}
 		if (pressed(handle, KEY_RELOAD, 3) && inWorld) {

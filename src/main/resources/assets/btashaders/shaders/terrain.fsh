@@ -44,6 +44,7 @@ uniform sampler2D colormasktex;
 #include "lib/sky.glsl"
 #include "lib/gbuffer.glsl"
 #include "lib/water.glsl"
+#include "lib/surface.glsl"
 
 uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
 
@@ -58,7 +59,8 @@ void main() {
 
     vec2 emissiveBrightness = texture(emissivetex, TexCoord).xy;
     vec3 light = computeLight(LightMapCoord, emissiveBrightness, RelPos, geoNormal, Material);
-    writeGBuffer(geoNormal, Material, LightMapCoord, btsDirectOut);
+    Surface surf = surfaceFor(Material, geoNormal, RelPos, skyFactor(LightMapCoord.y));
+    writeGBuffer(surf.normal, Material, LightMapCoord, btsDirectOut, surf.smoothness);
     vec4 lightColor = mix(vec4(1.0), vec4(light, 1.0), uLightMapStrength);
 
     vec4 texColor = texture(colortex, TexCoord);
@@ -68,8 +70,10 @@ void main() {
     float shadeEffect = 1 - max(emissiveBrightness.x, emissiveBrightness.y);
     float s = mix(1, bakedShade(Shade), shadeEffect);
 
-    vec4 postColor = texColor * c * vec4(s, s, s, 1) * lightColor;
+    vec3 albedo = wetAlbedo(texColor.rgb * c.rgb, surf);
+    vec4 postColor = vec4(albedo, texColor.a * c.a) * vec4(s, s, s, 1) * lightColor;
     vec4 litColor = vec4(postColor.rgb * faceShading(btaLight, geoNormal), postColor.a);
+    litColor.rgb = addSpecular(litColor.rgb, albedo, surf, RelPos, btsDirectOut);
 
     if (btsWaterPass == 1 && btsLightingOn == 1 && Material == MAT_WATER) {
         float sky = skyFactor(LightMapCoord.y);
