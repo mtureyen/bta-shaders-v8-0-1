@@ -53,8 +53,8 @@ import java.util.Map;
  * triggers chunk rebuilds.
  */
 public class ShadowRenderer {
-	// Tunables (will move to a config/pack file later).
-	public static final int RESOLUTION = 2048;
+	/** Default shadow map size; the settings menu can change it (ShaderConfig.shadowResolution). */
+	public static final int DEFAULT_RESOLUTION = 2048;
 	/** Half-size of the shadow box in blocks: shadows render within this radius of the camera. */
 	public static final float DISTANCE = 96.0F;
 	/** Depth range of the shadow camera in blocks (both directions), covers tall casters. */
@@ -109,6 +109,7 @@ public class ShadowRenderer {
 	private float rain = 0.0F;
 	/** 0..1 how wet the world is: rises while it rains (not snows), dries slowly afterwards. */
 	private float wetness = 0.0F;
+	private int resolution = DEFAULT_RESOLUTION;
 	private long lastWetnessUpdate = 0L;
 	/** Direct light color * intensity (already faded at the horizon and by rain). */
 	private final Vector3f directColor = new Vector3f();
@@ -252,7 +253,12 @@ public class ShadowRenderer {
 		this.nullShader.delete();
 		this.nullShader.compile(provider, "null");
 		this.entityShadowsBroken = false;
+		int wanted = ShaderConfig.shadowResolution();
+		if (this.fbo != 0 && wanted != this.resolution) {
+			this.delete(); // resolution changed in the settings
+		}
 		if (this.fbo == 0) {
+			this.resolution = wanted;
 			this.createFramebuffer();
 		}
 	}
@@ -260,7 +266,7 @@ public class ShadowRenderer {
 	private void createFramebuffer() {
 		this.depthTexture = GL41.glGenTextures();
 		GL41.glBindTexture(GL_TEXTURE_2D, this.depthTexture);
-		GL41.glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, RESOLUTION, RESOLUTION, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0L);
+		GL41.glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, this.resolution, this.resolution, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0L);
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -287,7 +293,7 @@ public class ShadowRenderer {
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		this.ready = status == GL_FRAMEBUFFER_COMPLETE;
 		if (this.ready) {
-			BtaShaders.LOGGER.info("Shadow map created ({}x{}).", RESOLUTION, RESOLUTION);
+			BtaShaders.LOGGER.info("Shadow map created ({}x{}).", this.resolution, this.resolution);
 		} else {
 			BtaShaders.LOGGER.error("Shadow framebuffer incomplete (status {}); shadows disabled.", status);
 		}
@@ -353,7 +359,7 @@ public class ShadowRenderer {
 
 		GLRenderer.pushFrame();
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, this.fbo);
-		GL41.glViewport(0, 0, RESOLUTION, RESOLUTION);
+		GL41.glViewport(0, 0, this.resolution, this.resolution);
 		GLRenderer.setDepthMask(true);
 		GL41.glClear(GL_DEPTH_BUFFER_BIT);
 		GLRenderer.enableState(State.DEPTH_TEST);
@@ -493,7 +499,7 @@ public class ShadowRenderer {
 		Matrix4d rotation = new Matrix4d().lookAlong(-this.lightDirection.x, -this.lightDirection.y, -this.lightDirection.z, 0.0, 0.0, 1.0);
 
 		// Snap the shadow camera to whole shadow-map texels in light space so edges don't shimmer as you move.
-		double texel = (2.0 * DISTANCE) / RESOLUTION;
+		double texel = (2.0 * DISTANCE) / this.resolution;
 		Vector3d lightSpaceCam = rotation.transformPosition(new Vector3d(this.cameraPos));
 		double snappedX = Math.floor(lightSpaceCam.x / texel) * texel;
 		double snappedY = Math.floor(lightSpaceCam.y / texel) * texel;
@@ -573,8 +579,8 @@ public class ShadowRenderer {
 		this.applyCameraUniforms(shader);
 		shader.uniformMat4f("btsShadowMatrix", this.shadowMatrix);
 		shader.uniformFloat("btsShadowStrength", this.shadowStrength);
-		shader.uniformFloat("btsShadowTexel", 1.0F / RESOLUTION);
-		shader.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / RESOLUTION);
+		shader.uniformFloat("btsShadowTexel", 1.0F / this.resolution);
+		shader.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / this.resolution);
 		shader.uniformFloat("btsShadowDepthSpan", 2.0F * DEPTH_RANGE);
 	}
 

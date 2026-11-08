@@ -1,6 +1,7 @@
 package io.github.mtureyen.btashaders.render;
 
 import io.github.mtureyen.btashaders.BtaShaders;
+import io.github.mtureyen.btashaders.config.ShaderSettingsScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.option.GameSettings;
 import net.minecraft.client.render.LightmapHelper;
@@ -677,7 +678,16 @@ public class BtaShadersRenderer extends ShadersRenderer {
 
 	// ---------------------------------------------------------------------------------------------
 
+	/** Dev runs: -Dbtashaders.openSettings=true shows the settings screen over the main menu once. */
+	private static final boolean OPEN_SETTINGS_ON_START = Boolean.getBoolean("btashaders.openSettings");
+	private boolean settingsOpenedOnStart = false;
+
 	private void pollKeys() {
+		if (OPEN_SETTINGS_ON_START && !this.settingsOpenedOnStart
+			&& this.mc.currentScreen instanceof net.minecraft.client.gui.ScreenMainMenu) {
+			this.settingsOpenedOnStart = true;
+			this.mc.displayScreen(new ShaderSettingsScreen(this.mc.currentScreen));
+		}
 		if (!(this.mc.gameWindow instanceof GameWindowGLFW window)) {
 			return;
 		}
@@ -705,9 +715,14 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			BtaShaders.LOGGER.info("G-buffer debug view: {}", names[this.debugView]);
 		}
 		if (pressed(handle, KEY_RELOAD, 3) && inWorld) {
-			BtaShaders.LOGGER.info("Reloading BTA Shaders...");
-			this.reload();
-			Shaders.reload(); // recompiles the world shaders, incl. ours
+			boolean shift = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+				|| GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+			if (shift) {
+				this.mc.displayScreen(new ShaderSettingsScreen(null));
+			} else {
+				BtaShaders.LOGGER.info("Reloading BTA Shaders...");
+				this.applySettings();
+			}
 		}
 	}
 
@@ -736,9 +751,16 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			}));
 	}
 
+	/** Re-reads the config and recompiles everything (ours + BTA's world shaders). */
+	public void applySettings() {
+		this.reload();
+		Shaders.reload(); // recompiles the world shaders, incl. ours
+	}
+
 	@Override
 	public void reload() {
 		ShaderConfig.load();
+		this.taaEnabled = ShaderConfig.taa();
 		super.reload();
 		compileOrWarn(this.compositeShader, "composite", "using stock BTA post-processing");
 		compileOrWarn(this.taaShader, "taa", "TAA disabled");

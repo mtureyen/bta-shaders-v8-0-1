@@ -17,6 +17,9 @@
 	"entrypoints": {
 		"main": [
 			"io.github.mtureyen.btashaders.BtaShaders"
+		],
+		"modmenu": [
+			"io.github.mtureyen.btashaders.config.ModMenuIntegration"
 		]
 	},
 	"mixins": [

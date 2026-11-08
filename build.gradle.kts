@@ -23,6 +23,7 @@ loom {
 	runs {
 		named("client") {
 			vmArg("-Dbtashaders.devShaderDir=${project.file("src/main/resources/assets/btashaders/shaders").absolutePath}")
+			vmArg("-Dbtashaders.openSettings=${System.getenv("BTS_OPEN_SETTINGS") ?: "false"}")
 		}
 	}
 }
@@ -54,7 +55,8 @@ dependencies {
 	compileOnly(libs.slf4jApi)
 
 	// Only required for development/launch at runtime, won't be part of any builds
-	localRuntime(libs.modMenu) // Optional, can be removed
+	compileOnly(libs.modMenu) // settings screen entry point (optional at runtime)
+	localRuntime(libs.modMenu)
 	runtimeClasspath(libs.clientJar)
 	val lwjglVer = libs.versions.lwjgl.get()
 	localRuntime(platform("org.lwjgl:lwjgl-bom:${lwjglVer}"))

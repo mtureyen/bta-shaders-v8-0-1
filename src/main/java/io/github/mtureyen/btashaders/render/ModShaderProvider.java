@@ -109,6 +109,11 @@ public class ModShaderProvider implements ShaderProvider {
 		return source.substring(0, insertAt) + defs + source.substring(insertAt);
 	}
 
+	/** Raw source of one file (dev dir, then shader pack, then built-in), without includes/defines. */
+	public String readSource(String name) {
+		return this.readRaw(name);
+	}
+
 	private boolean exists(String name) {
 		for (Path root : new Path[]{DEV_DIR, ShaderConfig.packDir()}) {
 			if (root != null && Files.isRegularFile(root.resolve(name))) {
