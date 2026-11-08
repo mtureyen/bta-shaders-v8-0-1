@@ -24,7 +24,8 @@ vec4 traceReflection(vec3 origin, vec3 dir, float jitter) {
             float sceneZ = viewPosAt(uv).z;
             float behind = sceneZ - p.z; // > 0: the ray went behind the visible surface
             if (behind > 0.0) {
-                if (behind > stepLen * 2.0 + 0.4) {
+                float tolerance = stepLen * 2.0 + 0.4;
+                if (behind > tolerance) {
                     // Passed behind a foreground object: no valid hit along this part of the ray.
                     prev = p;
                     p += dir * stepLen;
@@ -44,7 +45,10 @@ vec4 traceReflection(vec3 origin, vec3 dir, float jitter) {
                 vec2 huv = hc.xy / hc.w * 0.5 + 0.5;
                 vec2 edge = smoothstep(vec2(0.0), vec2(0.08), huv) * (1.0 - smoothstep(vec2(0.92), vec2(1.0), huv));
                 float facing = 1.0 - smoothstep(0.2, 0.6, dir.z);
-                return vec4(toLinear(texture(colortex0, huv).rgb), edge.x * edge.y * facing);
+                // Hits near the thickness limit fade out instead of flipping between hit and miss as the
+                // (TAA-jittered) ray shifts by a fraction of a pixel.
+                float sure = 1.0 - smoothstep(tolerance * 0.5, tolerance, behind);
+                return vec4(toLinear(texture(colortex0, huv).rgb), edge.x * edge.y * facing * sure);
             }
         }
         prev = p;
@@ -99,11 +103,11 @@ vec3 applyReflections(vec3 linearColor, vec3 viewPos, vec4 gNormal, vec4 gData) 
     fresnel = mix(f0, fresnel, smoothness * smoothness) * smoothness;
 
     vec3 reflection = environmentColor(dir, gData.r);
-    if (code != MAT_TRANSLUCENT) {
-        // Glass and ice: environment only. Their mirror-like grazing reflections made the screen-space
-        // trace flip between hit and miss every frame (visible flicker under glass roofs).
-        // Smooth surfaces need little start jitter (less sparkle); rough ones need it for the blur.
-        float jitter = 0.5 + (xi.x - 0.5) * mix(0.3, 1.0, clamp(roughness * 2.5, 0.0, 1.0));
+    {
+        // Mirror-like surfaces (glass, puddles): the same start offset every frame. A random one made
+        // their sharp reflections flip between hit and miss (flicker under glass roofs). Rough surfaces
+        // keep the per-frame jitter, which TAA turns into their blur.
+        float jitter = 0.5 + (xi.x - 0.5) * smoothstep(0.08, 0.35, roughness);
         vec4 hit = traceReflection(viewPos, normalize(mat3(btsView) * dir), jitter);
         reflection = mix(reflection, hit.rgb, hit.a);
     }
