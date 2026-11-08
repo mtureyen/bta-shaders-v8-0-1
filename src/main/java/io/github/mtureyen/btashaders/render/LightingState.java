@@ -21,13 +21,15 @@ public final class LightingState {
 	public static final int OPAQUE_DEPTH_UNIT = 6;
 	/** Same shadow map without the compare sampler (PCSS blocker search). */
 	public static final int SHADOW_RAW_UNIT = 7;
-	/** Colored shadows: opaque + translucent depth (compare), same raw, and the casters' color. */
+	/** Colored shadows: translucent-caster depth (compare), same raw, and the casters' color. */
 	public static final int SHADOW_TRANSLUCENT_UNIT = 8;
 	public static final int SHADOW_TRANSLUCENT_RAW_UNIT = 9;
 	public static final int SHADOW_COLOR_UNIT = 10;
 	/** labPBR atlas layers (PbrAtlas). */
 	public static final int PBR_NORMAL_UNIT = 11;
 	public static final int PBR_SPECULAR_UNIT = 12;
+	/** Highest unit any of our passes uses. */
+	public static final int LAST_UNIT = 14;
 
 	private static final int GL_TEXTURE0 = 33984;
 
@@ -82,33 +84,23 @@ public final class LightingState {
 			this.setSkyFog(false);
 			return;
 		}
-		if (this.shadows.isShadowMapValid()) {
-			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_UNIT);
-			GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getDepthTexture());
-			GL41.glBindSampler(SHADOW_UNIT, this.shadows.getCompareSampler());
-			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_RAW_UNIT);
-			GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getDepthTexture());
-			if (this.shadows.isColoredShadowsValid()) {
-				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_TRANSLUCENT_UNIT);
-				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getTranslucentDepthTexture());
-				GL41.glBindSampler(SHADOW_TRANSLUCENT_UNIT, this.shadows.getCompareSampler());
-				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_TRANSLUCENT_RAW_UNIT);
-				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getTranslucentDepthTexture());
-				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_COLOR_UNIT);
-				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getShadowColorTexture());
-			}
-			GL41.glActiveTexture(GL_TEXTURE0);
-		}
+		// Every unit we own gets a defined binding each frame: the real texture, or nothing. Leftovers from
+		// other passes (e.g. a G-buffer target that is also attached to the world framebuffer) must never
+		// sit on a unit a world shader declares a sampler for.
+		boolean shadowsValid = this.shadows.isShadowMapValid();
+		boolean coloredValid = shadowsValid && this.shadows.isColoredShadowsValid();
+		int compare = this.shadows.getCompareSampler();
+		bindUnit(SHADOW_UNIT, shadowsValid ? this.shadows.getDepthTexture() : 0, shadowsValid ? compare : 0);
+		bindUnit(SHADOW_RAW_UNIT, shadowsValid ? this.shadows.getDepthTexture() : 0, 0);
+		bindUnit(SHADOW_TRANSLUCENT_UNIT, coloredValid ? this.shadows.getTranslucentDepthTexture() : 0, coloredValid ? compare : 0);
+		bindUnit(SHADOW_TRANSLUCENT_RAW_UNIT, coloredValid ? this.shadows.getTranslucentDepthTexture() : 0, 0);
+		bindUnit(SHADOW_COLOR_UNIT, coloredValid ? this.shadows.getShadowColorTexture() : 0, 0);
 		int pbrNormal = PbrAtlas.texture(PbrAtlas.NORMAL_LAYER);
 		int pbrSpecular = PbrAtlas.texture(PbrAtlas.SPECULAR_LAYER);
 		boolean pbr = pbrNormal != 0 && pbrSpecular != 0;
-		if (pbr) {
-			GL41.glActiveTexture(GL_TEXTURE0 + PBR_NORMAL_UNIT);
-			GL41.glBindTexture(GL41.GL_TEXTURE_2D, pbrNormal);
-			GL41.glActiveTexture(GL_TEXTURE0 + PBR_SPECULAR_UNIT);
-			GL41.glBindTexture(GL41.GL_TEXTURE_2D, pbrSpecular);
-			GL41.glActiveTexture(GL_TEXTURE0);
-		}
+		bindUnit(PBR_NORMAL_UNIT, pbr ? pbrNormal : 0, 0);
+		bindUnit(PBR_SPECULAR_UNIT, pbr ? pbrSpecular : 0, 0);
+		GL41.glActiveTexture(GL_TEXTURE0);
 		for (Shader shader : litShaders()) {
 			if (!shader.isEnabled()) {
 				continue;
@@ -121,6 +113,20 @@ public final class LightingState {
 		}
 		GL41.glUseProgram(0);
 		this.ready = true;
+	}
+
+	private static void bindUnit(int unit, int texture, int sampler) {
+		GL41.glActiveTexture(GL_TEXTURE0 + unit);
+		GL41.glBindTexture(GL41.GL_TEXTURE_2D, texture);
+		GL41.glBindSampler(unit, sampler);
+	}
+
+	/** End of the frame: nothing of ours stays bound on units 4.. (they may be render targets next frame). */
+	public static void clearUnits() {
+		for (int unit = SHADOW_UNIT; unit <= LAST_UNIT; unit++) {
+			bindUnit(unit, 0, 0);
+		}
+		GL41.glActiveTexture(GL_TEXTURE0);
 	}
 
 	private void setSkyFog(boolean on) {

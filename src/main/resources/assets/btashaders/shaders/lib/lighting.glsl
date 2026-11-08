@@ -37,7 +37,7 @@ vec3 btsShadowTint = vec3(1.0);
 
 #if COLORED_SHADOWS
 uniform int btsColoredShadowsOn;
-uniform sampler2DShadow btsShadowTexTranslucent; // opaque + translucent depth, hardware compare
+uniform sampler2DShadow btsShadowTexTranslucent; // translucent casters only, hardware compare
 uniform sampler2D btsShadowDepthTranslucent;     // same, raw (water depth)
 uniform sampler2D btsShadowColor;                // rgb = light let through, a = 0 for water
 

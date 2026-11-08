@@ -362,6 +362,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			this.gbuffer, new CompositePass.Debug(this.debugShadowMap, this.debugView));
 		this.profiler.end(GpuProfiler.Section.POST);
 
+		LightingState.clearUnits();
 		LightmapHelper.instance.enableLightmapRendering();
 		GL41.glUseProgram(0);
 		OpenGLHelper.checkError("btashaders end render world");

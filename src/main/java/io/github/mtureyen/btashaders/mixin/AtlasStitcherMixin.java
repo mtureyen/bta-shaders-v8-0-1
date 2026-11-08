@@ -15,7 +15,7 @@ import java.awt.image.BufferedImage;
 /** labPBR: normal + specular layers on the block atlas, loaded from {@code _n} / {@code _s} files (PbrAtlas). */
 @Mixin(value = AtlasStitcher.class, remap = false)
 public abstract class AtlasStitcherMixin {
-	@Inject(method = "init", at = @At("HEAD"))
+	@Inject(method = "preinit", at = @At("HEAD"))
 	private void btashaders$pbrLayers(CallbackInfo ci) {
 		if ((Object) this == TextureRegistry.worldAtlas) {
 			PbrAtlas.prepareLayers((AtlasStitcher) (Object) this);

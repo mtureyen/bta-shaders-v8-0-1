@@ -41,7 +41,10 @@ public final class PbrAtlas {
 		return setting == null || !setting.trim().equals("0");
 	}
 
-	/** Before the world atlas is stitched: add or remove our layers to match the setting. */
+	/**
+	 * Before the world atlas is prepared (preinit: BTA creates its animated textures right after that,
+	 * sized to the layer count, so the layers must exist by then): add or remove ours to match the setting.
+	 */
 	public static void prepareLayers(AtlasStitcher atlas) {
 		boolean has = atlas.layerPostfixMap.containsKey(NORMAL_LAYER);
 		boolean want = wanted();

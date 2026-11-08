@@ -79,6 +79,7 @@ public class ShadowRenderer {
 	private static final int GL_DEPTH_BUFFER_BIT = 256;
 	private static final int GL_TEXTURE0 = 33984;
 	private static final float[] WHITE = {1.0F, 1.0F, 1.0F, 1.0F};
+	private static final float[] CLEAR_DEPTH = {1.0F};
 
 	private final Minecraft mc;
 	private final Shader shadowShader = new Shader();
@@ -127,9 +128,9 @@ public class ShadowRenderer {
 	/** Same, for the translucent layer (water, tinted glass): drawn into the colored shadow map. */
 	private final Map<RenderRegion<?>, IntBuffer[]> translucentBatches = new HashMap<>();
 
-	// Colored shadows: a second depth map that also holds translucent casters (copy of the opaque
-	// depth + translucents on top), and the color of the nearest translucent caster. A receiver that
-	// is lit in the opaque map but shadowed in this one sits behind glass or under water.
+	// Colored shadows: a second depth map holding only the translucent casters, and the color of the
+	// nearest one. A receiver that is lit in the opaque map but behind a caster in this one sits behind
+	// glass or under water.
 	private int translucentFbo = 0;
 	private int translucentDepth = 0;
 	private int shadowColor = 0;
@@ -469,17 +470,15 @@ public class ShadowRenderer {
 	}
 
 	/**
-	 * Colored shadow map: start from a copy of the finished opaque depth, then draw the translucent
-	 * layer on top with depth test, writing each caster's transmitted color (water writes a marker;
+	 * Colored shadow map: only the translucent layer, with depth test (anything opaque in the way is
+	 * already in the regular shadow map), writing the nearest caster's transmitted color (water writes a marker;
 	 * receivers work out its absorption + caustics themselves).
 	 */
 	private void renderTranslucentShadows(TerrainRendererMultiDraw terrain) {
-		GL41.glBindFramebuffer(GL41.GL_READ_FRAMEBUFFER, this.fbo);
-		GL41.glBindFramebuffer(GL41.GL_DRAW_FRAMEBUFFER, this.translucentFbo);
-		GL41.glBlitFramebuffer(0, 0, this.resolution, this.resolution, 0, 0, this.resolution, this.resolution,
-			GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, this.translucentFbo);
-		GL41.glClearBufferfv(GL41.GL_COLOR, 0, WHITE); // leaves BTA's clear color alone
+		// glClearBuffer leaves BTA's clear color / depth state alone.
+		GL41.glClearBufferfv(GL41.GL_COLOR, 0, WHITE);
+		GL41.glClearBufferfv(GL41.GL_DEPTH, 0, CLEAR_DEPTH);
 		if (!this.translucentBatches.isEmpty()) {
 			GL41.glActiveTexture(GL_TEXTURE0);
 			TextureRegistry.worldAtlas.bind();
