@@ -69,6 +69,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private static final int KEY_TOGGLE = GLFW.GLFW_KEY_F8;
 	private static final int KEY_DEBUG_SHADOW = GLFW.GLFW_KEY_F9;
 	private static final int KEY_TOGGLE_TAA = GLFW.GLFW_KEY_F10;
+	private static final int KEY_DEBUG_VIEW = GLFW.GLFW_KEY_F6;
 
 	/** Halton(2,3) sub-pixel offsets in [-0.5, 0.5] pixels. */
 	private static final float[][] JITTER = buildHalton(8);
@@ -101,6 +102,9 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private boolean waterPassActive = false;
 	/** This frame: BTA's sky dome is suppressed and our sky + clouds are drawn instead. */
 	private boolean ownSky = false;
+	private final GBuffer gbuffer = new GBuffer();
+	/** F6 debug view: 0 off, 1 normals, 2 materials, 3 light levels, 4 sun visibility. */
+	private int debugView = 0;
 
 	// TAA
 	private final ColorTarget[] history = {new ColorTarget(ColorTarget.GL_RGBA16F), new ColorTarget(ColorTarget.GL_RGBA16F)};
@@ -122,7 +126,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private boolean enabled = true;
 	private boolean taaEnabled = true;
 	private boolean debugShadowMap = false;
-	private final boolean[] keyDown = new boolean[4];
+	private final boolean[] keyDown = new boolean[5];
 
 	public BtaShadersRenderer(Minecraft minecraft) {
 		super(minecraft);
@@ -175,6 +179,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			this.worldFrameBuffer = new FrameBufferSingleSample(
 				new HdrColorTexture(renderSize, params),
 				new FrameBufferTextureSingleSample(GL_DEPTH_COMPONENT, GL_DEPTH_ATTACHMENT, renderSize, params));
+			this.gbuffer.invalidate();
 			this.historyValid = false;
 		}
 	}
@@ -206,6 +211,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		}
 		this.matricesCaptured = true;
 		if (this.enabled) {
+			this.gbuffer.setMrt(true); // solid terrain writes the G-buffer
 			this.lighting.enterWorldGeometry();
 		}
 	}
@@ -298,6 +304,25 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			// them in the prepare pass. (BTA clears to its fog color right after this.)
 			GL41.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
 		}
+		if (this.enabled && this.worldFrameBuffer != null) {
+			this.gbuffer.attach(this.worldFrameBuffer.getId(), this.renderWidth, this.renderHeight);
+			this.gbuffer.clear();
+		}
+	}
+
+	/** End of the solid terrain draw / start + end of entities: G-buffer writes only around our draws. */
+	public void endSolidTerrain() {
+		this.gbuffer.setMrt(false);
+	}
+
+	public void beginEntities() {
+		if (this.enabled && this.lighting.getMode() == LightingState.WORLD) {
+			this.gbuffer.setMrt(true);
+		}
+	}
+
+	public void endEntities() {
+		this.gbuffer.setMrt(false);
 	}
 
 	/** RenderGlobal.renderSky HEAD/RETURN: our color_world shader draws BTA's sky dome transparent. */
@@ -343,6 +368,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 
 	@Override
 	public void endRenderWorld(float partialTicks) {
+		this.gbuffer.setMrt(false);
 		this.lighting.endWorld();
 		this.afterTranslucentTerrain();
 		if (!this.enabled || !this.compositeShader.isEnabled()) {
@@ -437,6 +463,17 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		GL41.glActiveTexture(GL_TEXTURE0);
 		ShaderHelper.setUniforms(this.mc, this.compositeShader, partialTicks);
 		this.compositeShader.uniformBool("btsDebugShadowMap", showShadowMap);
+		int view = this.gbuffer.isValid() ? this.debugView : 0;
+		if (view > 0) {
+			GL41.glActiveTexture(GL_TEXTURE0 + 3);
+			GL41.glBindTexture(GL_TEXTURE_2D, this.gbuffer.getNormalTexture());
+			GL41.glActiveTexture(GL_TEXTURE0 + 4);
+			GL41.glBindTexture(GL_TEXTURE_2D, this.gbuffer.getDataTexture());
+			GL41.glActiveTexture(GL_TEXTURE0);
+			this.compositeShader.uniformInt("btsGNormal", 3);
+			this.compositeShader.uniformInt("btsGData", 4);
+		}
+		this.compositeShader.uniformInt("btsDebugView", view);
 		ShaderHelper.drawFullscreenRect();
 
 		LightmapHelper.instance.enableLightmapRendering();
@@ -475,6 +512,17 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		this.setAtmosphereUniforms(shader);
 		this.setCloudUniforms(shader);
 		shader.uniformInt("btsOwnSky", this.ownSky ? 1 : 0);
+		// G-buffer for material-aware SSAO.
+		boolean gbufferOn = this.gbuffer.isValid();
+		GL41.glActiveTexture(GL_TEXTURE0 + 2);
+		GL41.glBindTexture(GL_TEXTURE_2D, gbufferOn ? this.gbuffer.getNormalTexture() : 0);
+		GL41.glActiveTexture(GL_TEXTURE0 + 3);
+		GL41.glBindTexture(GL_TEXTURE_2D, gbufferOn ? this.gbuffer.getDataTexture() : 0);
+		GL41.glActiveTexture(GL_TEXTURE0);
+		shader.uniformInt("btsGNormal", 2);
+		shader.uniformInt("btsGData", 3);
+		shader.uniformInt("btsGBufferOn", gbufferOn ? 1 : 0);
+		shader.uniformMat4f("btsView", this.view);
 		this.prepareShader.uniformMat4f("btsProjInv", new Matrix4f(this.projectionJittered).invert());
 		this.prepareShader.uniformMat4f("btsProj", this.projectionJittered);
 		this.prepareShader.uniformVec2f("btsViewSize", this.renderWidth, this.renderHeight);
@@ -624,6 +672,11 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			this.historyValid = false;
 			BtaShaders.LOGGER.info("TAA {}", this.taaEnabled ? "on" : "off");
 		}
+		if (pressed(handle, KEY_DEBUG_VIEW, 4) && inWorld) {
+			this.debugView = (this.debugView + 1) % 5;
+			String[] names = {"off", "normals", "materials", "light levels", "sun visibility"};
+			BtaShaders.LOGGER.info("G-buffer debug view: {}", names[this.debugView]);
+		}
 		if (pressed(handle, KEY_RELOAD, 3) && inWorld) {
 			BtaShaders.LOGGER.info("Reloading BTA Shaders...");
 			this.reload();
@@ -708,6 +761,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		this.bloom.delete();
 		this.exposure.delete();
 		this.opaqueCopy.delete();
+		this.gbuffer.delete();
 		this.quad.delete();
 		this.historyValid = false;
 		this.shadows.delete();

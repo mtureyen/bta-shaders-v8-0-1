@@ -5,7 +5,7 @@
 #include "lib/settings.glsl"
 #include "lib/materials.glsl"
 
-out vec4 FragColor;
+layout (location = 0) out vec4 FragColor;
 
 in vec4 Color;
 in vec2 TexCoord;
@@ -34,11 +34,13 @@ uniform sampler2D colormasktex;
 #include "lib/fog.glsl"
 #include "lib/lighting.glsl"
 #include "lib/sky.glsl"
+#include "lib/gbuffer.glsl"
 
 void main() {
     vec3 geoNormal = geometricNormal(RelPos);
     vec2 emissiveBrightness = texture(emissivetex, TexCoord).xy;
     vec3 light = computeLight(LightMapCoord, emissiveBrightness, RelPos, geoNormal, MAT_TRANSLUCENT);
+    writeGBuffer(geoNormal, GCODE_OBJECT, LightMapCoord, btsDirectOut);
     vec4 lightColor = mix(vec4(1.0), vec4(light, 1.0), uLightMapStrength);
     vec4 texColor = texture(colortex, TexCoord);
     vec4 maskColor = texture(colormasktex, TexCoord);

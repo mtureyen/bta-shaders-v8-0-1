@@ -2,6 +2,7 @@ package io.github.mtureyen.btashaders.mixin;
 
 import io.github.mtureyen.btashaders.render.BtaShadersRenderer;
 import net.minecraft.client.render.RenderGlobal;
+import net.minecraft.client.render.camera.ICamera;
 import net.minecraft.client.render.worldtype.WorldTypeFX;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -42,6 +43,23 @@ public abstract class RenderGlobalSkyMixin {
 			return null;
 		}
 		return fx.getSunriseColor(timeOfDay, partialTick);
+	}
+
+	/** Entities, block entities and dropped items write the G-buffer too. */
+	@Inject(method = "renderEntities", at = @At("HEAD"))
+	private void btashaders$beginEntities(ICamera camera, float partialTick, CallbackInfo ci) {
+		BtaShadersRenderer renderer = BtaShadersRenderer.active();
+		if (renderer != null) {
+			renderer.beginEntities();
+		}
+	}
+
+	@Inject(method = "renderEntities", at = @At("RETURN"))
+	private void btashaders$endEntities(ICamera camera, float partialTick, CallbackInfo ci) {
+		BtaShadersRenderer renderer = BtaShadersRenderer.active();
+		if (renderer != null) {
+			renderer.endEntities();
+		}
 	}
 
 	@Inject(method = "renderClouds", at = @At("HEAD"), cancellable = true)

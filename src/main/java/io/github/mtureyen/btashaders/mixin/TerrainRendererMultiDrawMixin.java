@@ -23,6 +23,14 @@ public abstract class TerrainRendererMultiDrawMixin {
 		}
 	}
 
+	@Inject(method = "renderSolidTerrain", at = @At("RETURN"))
+	private void btashaders$afterSolid(float partialTicks, CallbackInfo ci) {
+		BtaShadersRenderer renderer = BtaShadersRenderer.active();
+		if (renderer != null) {
+			renderer.endSolidTerrain();
+		}
+	}
+
 	@Inject(method = "renderTranslucentTerrain", at = @At("HEAD"))
 	private void btashaders$beforeTranslucent(float partialTicks, CallbackInfo ci) {
 		BtaShadersRenderer renderer = BtaShadersRenderer.active();

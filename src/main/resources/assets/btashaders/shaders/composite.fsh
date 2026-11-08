@@ -3,6 +3,8 @@
 // Sharpening, white balance, vibrance, contrast, vignette, debug overlays. All LDR.
 
 #include "lib/settings.glsl"
+#define GBUFFER_READ_ONLY
+#include "lib/gbuffer.glsl"
 
 in vec2 TexCoords;
 out vec4 FragColor;
@@ -12,6 +14,22 @@ uniform sampler2D shadowtex0;  // shadow map (debug overlay only)
 uniform bool btsDebugShadowMap;
 uniform bool guiOpened;
 uniform ivec2 windowSize;
+uniform sampler2D btsGNormal;  // G-buffer (debug views)
+uniform sampler2D btsGData;
+uniform int btsDebugView;      // F6: 0 off, 1 normals, 2 materials, 3 sky/block light, 4 sun visibility
+
+vec3 materialColor(int code) {
+    if (code == 1) return vec3(0.3, 0.9, 0.2);   // plant
+    if (code == 2) return vec3(0.1, 0.5, 0.1);   // leaves
+    if (code == 3) return vec3(0.1, 0.3, 1.0);   // water
+    if (code == 4) return vec3(1.0, 0.4, 0.0);   // lava
+    if (code == 5) return vec3(1.0, 1.0, 0.3);   // emissive
+    if (code == 6) return vec3(0.6, 0.9, 1.0);   // glass / ice
+    if (code == 8) return vec3(0.9, 0.2, 0.9);   // entity
+    if (code == 9) return vec3(0.9, 0.6, 0.3);   // item / object
+    if (code == 10) return vec3(0.5, 0.5, 0.5);  // other
+    return vec3(0.75);                            // default block
+}
 
 float luma(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -57,6 +75,23 @@ void main() {
     if (!guiOpened) {
         vec2 p = TexCoords - 0.5;
         color *= 1.0 - dot(p, p) * VIGNETTE;
+    }
+
+    // F6: G-buffer debug views (black = nothing written there: sky, particles, water, hand).
+    if (btsDebugView > 0) {
+        vec4 gn = texture(btsGNormal, TexCoords);
+        vec4 gd = texture(btsGData, TexCoords);
+        if (gd.a < 0.5) {
+            color = vec3(0.0);
+        } else if (btsDebugView == 1) {
+            color = gbufferNormal(gn) * 0.5 + 0.5;
+        } else if (btsDebugView == 2) {
+            color = materialColor(gbufferCode(gn));
+        } else if (btsDebugView == 3) {
+            color = vec3(gd.g, gd.g * 0.6 + gd.r * 0.3, gd.r);
+        } else {
+            color = vec3(gd.b);
+        }
     }
 
     // F9: shadow map overlay in the bottom-right corner.

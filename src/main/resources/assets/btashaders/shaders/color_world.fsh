@@ -6,7 +6,7 @@
 
 #include "lib/settings.glsl"
 
-out vec4 FragColor;
+layout (location = 0) out vec4 FragColor;
 
 in vec4 Color;
 in vec2 LightMapCoord;
@@ -30,12 +30,15 @@ uniform sampler2D lighttex;
 
 #include "lib/fog.glsl"
 #include "lib/sky.glsl"
+#include "lib/gbuffer.glsl"
 
 void main() {
     if (btsSkyMode == 1) {
         FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
+    vec3 n = normalize(cross(dFdx(RelPos), dFdy(RelPos)));
+    writeGBuffer(dot(n, RelPos) > 0.0 ? -n : n, GCODE_OTHER, LightMapCoord, 0.0);
     vec4 lightColor = mix(vec4(1, 1, 1, 1), texture(lighttex, LightMapCoord), uLightMapStrength);
     vec4 oColor = lightColor * Color * uColor;
 

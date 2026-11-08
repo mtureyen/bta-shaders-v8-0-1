@@ -18,7 +18,14 @@ uniform float btsFrame;
 uniform float frameTimeCounter;
 uniform int btsOwnSky;         // 1 = BTA's sky dome was suppressed: draw ours here
 uniform int isEyeInLiquid;
+uniform sampler2D btsGNormal;  // G-buffer: world normal + material (lib/gbuffer.glsl)
+uniform sampler2D btsGData;    // G-buffer: sky light, block light, sun visibility, written flag
+uniform mat4 btsView;
+uniform int btsGBufferOn;
 
+#include "lib/materials.glsl"
+#define GBUFFER_READ_ONLY
+#include "lib/gbuffer.glsl"
 #include "lib/sky.glsl"
 #include "lib/clouds.glsl"
 
@@ -64,7 +71,19 @@ void main() {
 
 #if SSAO
     if (depth < 1.0 && depth > HAND_DEPTH) {
-        color *= ambientOcclusion(p, n);
+        float strength = 1.0;
+        vec4 gData = btsGBufferOn == 1 ? texture(btsGData, TexCoords) : vec4(0.0);
+        if (gData.a > 0.5) {
+            // Material-aware: the G-buffer's real normal instead of the noisy depth-derived one,
+            // weaker on foliage (cut-out holes look like crevices) and in direct sunlight
+            // (occlusion only darkens ambient light, not the sun).
+            vec4 gNormal = texture(btsGNormal, TexCoords);
+            n = normalize(mat3(btsView) * gbufferNormal(gNormal));
+            int code = gbufferCode(gNormal);
+            if (code == MAT_LEAVES || code == MAT_PLANT) strength *= SSAO_FOLIAGE;
+            strength *= 1.0 - SSAO_SUN_REDUCTION * gData.b;
+        }
+        color *= mix(1.0, ambientOcclusion(p, n), strength);
     }
 #endif
 

@@ -162,7 +162,7 @@
 #define SSAO_RADIUS 0.7              // blocks
 #endif
 #ifndef SSAO_STRENGTH
-#define SSAO_STRENGTH 0.4
+#define SSAO_STRENGTH 0.5
 #endif
 
 // ---- Bloom (HDR glow of bright areas only, added on top) ----
@@ -180,6 +180,13 @@
 #endif
 
 // ---- Tone mapping (Lottes-style curve, linear in / gamma out) ----
+#ifndef SSAO_FOLIAGE
+#define SSAO_FOLIAGE 0.4             // AO strength on leaves/plants (their holes look like crevices)
+#endif
+#ifndef SSAO_SUN_REDUCTION
+#define SSAO_SUN_REDUCTION 0.6       // less AO where the sun shines directly
+#endif
+
 #ifndef TONEMAP_EXPOSURE
 #define TONEMAP_EXPOSURE 1.1
 #endif

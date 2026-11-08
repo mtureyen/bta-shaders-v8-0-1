@@ -23,6 +23,9 @@ uniform int btsEyeInWater;
 
 #include "lib/atmosphere.glsl"
 
+// Direct sun visibility of the last computeLight() call (for the G-buffer).
+float btsDirectOut = 0.0;
+
 float distortFactor(vec2 clipXY) {
     return length(clipXY) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT);
 }
@@ -147,7 +150,9 @@ vec3 computeLight(vec2 lightCoord, vec2 emissive, vec3 relPos, vec3 geoNormal, i
     // Bounce light: sunlit ground reflects warm light onto sides and undersides.
     float facingDown = btsLightingOn == 2 ? 0.5 : clamp(0.5 - 0.5 * geoNormal.y, 0.0, 1.0);
     ambient += sunLightColor() * sunVisibility() * BOUNCE_LIGHT * facingDown * sky * sky;
-    vec3 direct = activeLightColor(btsLightIsSun == 1) * directVisibility(relPos, geoNormal, material, sky);
+    float directVis = directVisibility(relPos, geoNormal, material, sky);
+    btsDirectOut = directVis;
+    vec3 direct = activeLightColor(btsLightIsSun == 1) * directVis;
     vec3 scene = ambient + direct;
     vec3 block = blockLm * BLOCKLIGHT_STRENGTH * BLOCKLIGHT_TINT;
 
