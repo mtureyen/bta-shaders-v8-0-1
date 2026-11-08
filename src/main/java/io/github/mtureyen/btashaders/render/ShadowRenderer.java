@@ -8,6 +8,7 @@ import net.minecraft.client.render.OpenGLHelper;
 import net.minecraft.client.render.renderer.GLRenderer;
 import net.minecraft.client.render.renderer.Shaders;
 import net.minecraft.client.render.renderer.State;
+import net.minecraft.client.render.worldtype.WorldTypeFXDispatcher;
 import net.minecraft.client.render.shader.Shader;
 import net.minecraft.client.render.shader.ShaderProvider;
 import net.minecraft.client.render.terrain.ChunkRenderer;
@@ -404,6 +405,12 @@ public class ShadowRenderer {
 		this.mc.activeCamera.getPosition(partialTicks, this.cameraPos);
 		this.updateLight(partialTicks);
 		this.lightValid = true;
+		if (!WorldTypeFXDispatcher.getInstance().getDispatch(this.mc.currentWorld.getWorldType()).hasSky()) {
+			// Nether-like dimensions: no sun reaches anything (sky light is 0 everywhere), so a sun shadow
+			// map would only cost time (~5 ms of terrain rendering).
+			this.shadowStrength = 0.0F;
+			return;
+		}
 		if (!this.ready || !this.shadowShader.isEnabled()) {
 			return;
 		}
