@@ -72,7 +72,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private static final int KEY_DEBUG_SHADOW = GLFW.GLFW_KEY_F9;
 	private static final int KEY_TOGGLE_TAA = GLFW.GLFW_KEY_F10;
 	private static final int KEY_DEBUG_VIEW = GLFW.GLFW_KEY_F6;
-	private static final String[] DEBUG_VIEWS = {"off", "normals", "materials", "light levels", "sun visibility", "smoothness"};
+	private static final String[] DEBUG_VIEWS = {"off", "normals", "materials", "light levels", "sun visibility", "smoothness", "motion"};
 
 	/** Dev runs: -Dbtashaders.openSettings=true shows the settings screen over the main menu once. */
 	private static final boolean OPEN_SETTINGS_ON_START = Boolean.getBoolean("btashaders.openSettings");

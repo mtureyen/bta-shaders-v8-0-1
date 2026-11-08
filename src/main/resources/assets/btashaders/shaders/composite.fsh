@@ -16,7 +16,8 @@ uniform bool guiOpened;
 uniform ivec2 windowSize;
 uniform sampler2D btsGNormal;  // G-buffer (debug views)
 uniform sampler2D btsGData;
-uniform int btsDebugView;      // F6: 0 off, 1 normals, 2 materials, 3 sky/block light, 4 sun visibility
+uniform sampler2D btsGMotion;   // G-buffer: per-entity motion since last frame (F6 view 6)
+uniform int btsDebugView;      // F6: 0 off, 1 normals, 2 materials, 3 sky/block light, 4 sun visibility, 5 smoothness, 6 motion
 
 vec3 materialColor(int code) {
     if (code == 1) return vec3(0.3, 0.9, 0.2);   // plant
@@ -94,8 +95,12 @@ void main() {
             color = vec3(gd.g, gd.g * 0.6 + gd.r * 0.3, gd.r);
         } else if (btsDebugView == 4) {
             color = vec3(gd.b);
-        } else {
+        } else if (btsDebugView == 5) {
             color = vec3(gbufferSmoothness(gn));
+        } else {
+            // Motion: direction as color, brightness by speed (moving entities light up).
+            vec3 m = texture(btsGMotion, TexCoords).xyz;
+            color = clamp(abs(m) * 20.0, 0.0, 1.0) + vec3(0.04);
         }
     }
 

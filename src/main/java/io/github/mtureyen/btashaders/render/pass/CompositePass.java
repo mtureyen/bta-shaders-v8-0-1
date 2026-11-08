@@ -105,6 +105,7 @@ public final class CompositePass {
 		if (view > 0) {
 			PassUtil.bindTexture(s, "btsGNormal", 3, gbuffer.getNormalTexture());
 			PassUtil.bindTexture(s, "btsGData", 4, gbuffer.getDataTexture());
+			PassUtil.bindTexture(s, "btsGMotion", 5, gbuffer.getMotionTexture());
 		}
 		s.uniformInt("btsDebugView", view);
 		ShaderHelper.drawFullscreenRect();
