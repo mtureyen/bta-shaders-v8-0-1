@@ -105,7 +105,10 @@ vec3 applyReflections(vec3 linearColor, vec3 viewPos, vec4 gNormal, vec4 gData) 
     if (metal) {
         // Metals: the reflection takes the surface's own color and replaces most of the diffuse.
         float peak = max(max(linearColor.r, linearColor.g), max(linearColor.b, 1e-4));
-        vec3 tint = clamp(linearColor / peak, 0.0, 1.0);
+        vec3 hue = clamp(linearColor / peak, 0.0, 1.0);
+        // Linearized block textures can drop a channel to ~0 (a yellow gold texture keeps almost no
+        // blue, so blue sky would turn green); real metal reflectance never does (gold ~0.3 blue).
+        vec3 tint = max(hue, vec3(0.3));
         // Keep some of the diffuse look where the environment is dark (indoors) so metal blocks
         // don't turn black without anything to reflect.
         vec3 metalColor = max(reflection * tint, linearColor * 0.45);

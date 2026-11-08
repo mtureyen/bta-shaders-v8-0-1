@@ -68,6 +68,28 @@ void readPbr(vec2 uv, vec3 relPos, vec3 geoNormal) {
 #endif
 }
 
+// labPBR hardcoded metals (specular green 230-237): their real reflectance color replaces the texture's
+// albedo (metals have no diffuse color of their own); the texture keeps its brightness detail.
+vec3 pbrMetalAlbedo(vec3 albedoGamma) {
+#if LABPBR
+    int id = int(btsPbrSpecular.g * 255.0 + 0.5) - 230;
+    if (id < 0 || id > 7 || !hasPbrSpecular()) return albedoGamma;
+    const vec3 F0[8] = vec3[8](
+        vec3(0.56, 0.57, 0.58),  // iron
+        vec3(1.00, 0.71, 0.29),  // gold
+        vec3(0.91, 0.92, 0.92),  // aluminum
+        vec3(0.55, 0.56, 0.55),  // chrome
+        vec3(0.95, 0.64, 0.54),  // copper
+        vec3(0.63, 0.63, 0.64),  // lead
+        vec3(0.67, 0.64, 0.59),  // platinum
+        vec3(0.95, 0.93, 0.88)); // silver
+    float detail = clamp(dot(albedoGamma, vec3(0.2126, 0.7152, 0.0722)) * 1.4, 0.5, 1.15);
+    return toGamma(F0[id]) * detail;
+#else
+    return albedoGamma;
+#endif
+}
+
 // Glow from the specular map's alpha, added to a lit gamma color.
 vec3 addPbrEmission(vec3 litGamma, vec3 albedoGamma) {
 #if LABPBR

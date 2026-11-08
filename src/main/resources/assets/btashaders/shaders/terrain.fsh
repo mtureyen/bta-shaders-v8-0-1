@@ -72,7 +72,7 @@ void main() {
     float shadeEffect = 1 - max(emissiveBrightness.x, emissiveBrightness.y);
     float s = mix(1, bakedShade(Shade), shadeEffect) * mix(1.0, btsPbrAO, 0.85);
 
-    vec3 albedo = wetAlbedo(texColor.rgb * c.rgb, surf);
+    vec3 albedo = wetAlbedo(pbrMetalAlbedo(texColor.rgb * c.rgb), surf);
     vec4 postColor = vec4(albedo, texColor.a * c.a) * vec4(s, s, s, 1) * lightColor;
     vec4 litColor = vec4(postColor.rgb * faceShading(btaLight, geoNormal), postColor.a);
     litColor.rgb = addSpecular(litColor.rgb, albedo, surf, RelPos, btsDirectOut);
