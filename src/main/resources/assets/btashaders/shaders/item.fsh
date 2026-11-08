@@ -36,7 +36,13 @@ uniform sampler2D colormasktex;
 #include "lib/sky.glsl"
 #include "lib/gbuffer.glsl"
 
+uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
+
 void main() {
+    if (btsShadowPass == 1) {
+        if (texture(colortex, TexCoord).a < 0.5) discard;
+        return;
+    }
     vec3 geoNormal = geometricNormal(RelPos);
     vec2 emissiveBrightness = texture(emissivetex, TexCoord).xy;
     vec3 light = computeLight(LightMapCoord, emissiveBrightness, RelPos, geoNormal, MAT_TRANSLUCENT);

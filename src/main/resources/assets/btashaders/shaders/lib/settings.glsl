@@ -87,6 +87,9 @@
 #ifndef CLOUD_SUN
 #define CLOUD_SUN 1.0                // how strongly the sun lights the clouds
 #endif
+#ifndef CLOUD_SHADOW_STRENGTH
+#define CLOUD_SHADOW_STRENGTH 0.75   // how much sunlight a cloud blocks on the ground
+#endif
 #ifndef CLOUD_AMBIENT
 #define CLOUD_AMBIENT 1.5            // brightness of the clouds' shaded parts
 #endif
@@ -112,6 +115,27 @@
 #endif
 #ifndef SHADOW_FILTER_RADIUS
 #define SHADOW_FILTER_RADIUS 1.6     // in shadow-map texels (near the player)
+#endif
+#ifndef PCSS
+#define PCSS 1                       // contact-hardening shadows: sharp near the caster, soft further away
+#endif
+#ifndef PCSS_SOFTNESS
+#define PCSS_SOFTNESS 0.035          // penumbra width per block of distance to the caster
+#endif
+#ifndef PCSS_MIN_RADIUS
+#define PCSS_MIN_RADIUS 0.8          // texels
+#endif
+#ifndef PCSS_MAX_RADIUS
+#define PCSS_MAX_RADIUS 9.0
+#endif
+#ifndef PCSS_SEARCH_RADIUS
+#define PCSS_SEARCH_RADIUS 6.0
+#endif
+#ifndef PCSS_BLOCKER_SAMPLES
+#define PCSS_BLOCKER_SAMPLES 6
+#endif
+#ifndef ENTITY_SHADOWS
+#define ENTITY_SHADOWS 1
 #endif
 #ifndef FOLIAGE_FILTER_MULT
 #define FOLIAGE_FILTER_MULT 3.0
@@ -219,6 +243,18 @@
 #endif
 
 // ---- Composite ----
+#ifndef VOLUMETRIC_LIGHT
+#define VOLUMETRIC_LIGHT 1           // shadow-map raymarched light shafts (0 = old screen-space god rays)
+#endif
+#ifndef VL_STEPS
+#define VL_STEPS 14
+#endif
+#ifndef VL_DISTANCE
+#define VL_DISTANCE 96.0             // blocks
+#endif
+#ifndef VL_STRENGTH
+#define VL_STRENGTH 0.06
+#endif
 #ifndef GODRAY_SAMPLES
 #define GODRAY_SAMPLES 40
 #endif

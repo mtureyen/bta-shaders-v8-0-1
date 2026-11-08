@@ -22,6 +22,7 @@ layout (std140) uniform Matrices {
 
 uniform float frameTimeCounter;
 uniform vec3 btsCameraMod;
+uniform int btsShadowPass; // 1 while rendering (dropped block) entities into the shadow map
 
 #include "lib/waving.glsl"
 
@@ -54,4 +55,5 @@ void main() {
     relPos = applyWaving(relPos, Material, decodeTopVertex(aNormal));
     RelPos = relPos;
     gl_Position = matrices.projection * matrices.view * vec4(relPos, 1.0);
+    if (btsShadowPass == 1) gl_Position.xy /= length(gl_Position.xy) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT);
 }

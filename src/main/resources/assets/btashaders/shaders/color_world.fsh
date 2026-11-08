@@ -32,7 +32,10 @@ uniform sampler2D lighttex;
 #include "lib/sky.glsl"
 #include "lib/gbuffer.glsl"
 
+uniform int btsShadowPass;
+
 void main() {
+    if (btsShadowPass == 1) return;
     if (btsSkyMode == 1) {
         FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;

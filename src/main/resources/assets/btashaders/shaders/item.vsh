@@ -1,4 +1,6 @@
 #version 410 core
+#include "lib/settings.glsl"
+uniform int btsShadowPass; // 1 while rendering entities into the shadow map
 // BTA Shaders item vertex shader (BTA 8.0.1 item.vsh + camera-relative position for lighting).
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec4 aColor;
@@ -38,6 +40,7 @@ void main() {
     vec4 rel = model * vec4(aPos, 1);
     RelPos = rel.xyz;
     gl_Position = matrices.projection * matrices.view * rel;
+    if (btsShadowPass == 1) gl_Position.xy /= length(gl_Position.xy) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT);
     TexCoord = aUV;
     Color = aColor;
     LightMapCoord = unpackLightCoord();

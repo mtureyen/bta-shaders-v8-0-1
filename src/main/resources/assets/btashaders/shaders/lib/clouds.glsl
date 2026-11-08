@@ -1,12 +1,11 @@
 // Blocky, sun-lit clouds (own implementation, the idea of Complementary's "reimagined" clouds):
 // a layer of cloud cells on a grid, with rounded edges (thresholded bilinear occupancy), raymarched
-// in the tonemap pass and lit from the sun with a cheap 2-tap shadow. Replaces BTA's flat clouds.
-// LINEAR HDR. Needs: lib/settings.glsl, lib/sky.glsl, uniforms below, frameTimeCounter.
+// in the prepare pass and lit from the sun with a cheap 2-tap shadow. Replaces BTA's flat clouds.
+// Also provides cloudShadow() for the lighting and volumetric light. LINEAR HDR. Needs: lib/settings.glsl.
+#ifndef BTS_CLOUDS
+#define BTS_CLOUDS
 
-uniform vec3 btsCameraMod;    // camera position mod 1024 (x/z used)
-uniform float btsCameraY;
-uniform float btsCloudHeight; // bottom of the cloud layer (world y)
-uniform int btsCloudsOn;
+#include "lib/sky.glsl"
 
 // Periodic hash: the cell grid repeats every 64 cells (= 1024 blocks with 16-block cells), matching
 // the camera's mod-1024 position so there's no seam.
@@ -102,3 +101,22 @@ vec4 renderClouds(vec3 dir, float maxDist, vec2 pixel) {
     float opacity = (1.0 - transmittance) * fade;
     return vec4(color * fade, opacity);
 }
+
+// 0..1 sunlight let through by the clouds above a camera-relative point (1 = clear). One density
+// lookup where the ray towards the sun crosses the middle of the cloud layer.
+float cloudShadow(vec3 relPos) {
+#if CLOUDS
+    if (btsCloudsOn == 0) return 1.0;
+    vec3 sunDir = sunDirection();
+    if (sunDir.y < 0.05) return 1.0;
+    vec3 world = relPos + vec3(btsCameraMod.x, btsCameraY, btsCameraMod.z);
+    float mid = btsCloudHeight + CLOUD_THICKNESS * 0.5;
+    vec3 p = world + sunDir * ((mid - world.y) / sunDir.y);
+    p.y = mid;
+    return 1.0 - cloudDensity(p) * CLOUD_SHADOW_STRENGTH;
+#else
+    return 1.0;
+#endif
+}
+
+#endif

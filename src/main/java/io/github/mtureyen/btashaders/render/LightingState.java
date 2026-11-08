@@ -19,6 +19,8 @@ public final class LightingState {
 	public static final int SHADOW_UNIT = 4;
 	public static final int OPAQUE_COLOR_UNIT = 5;
 	public static final int OPAQUE_DEPTH_UNIT = 6;
+	/** Same shadow map without the compare sampler (PCSS blocker search). */
+	public static final int SHADOW_RAW_UNIT = 7;
 
 	private static final int GL_TEXTURE0 = 33984;
 
@@ -47,6 +49,7 @@ public final class LightingState {
 		shader.uniformInt("btsShadowTex", SHADOW_UNIT);
 		shader.uniformInt("btsOpaqueColor", OPAQUE_COLOR_UNIT);
 		shader.uniformInt("btsOpaqueDepth", OPAQUE_DEPTH_UNIT);
+		shader.uniformInt("btsShadowDepthRaw", SHADOW_RAW_UNIT);
 		shader.uniformInt("btsLightingOn", OFF);
 		shader.uniformInt("btsShadowsOn", 0);
 		shader.uniformInt("btsWaterPass", 0);
@@ -69,6 +72,8 @@ public final class LightingState {
 			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_UNIT);
 			GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getDepthTexture());
 			GL41.glBindSampler(SHADOW_UNIT, this.shadows.getCompareSampler());
+			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_RAW_UNIT);
+			GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getDepthTexture());
 			GL41.glActiveTexture(GL_TEXTURE0);
 		}
 		for (Shader shader : litShaders()) {

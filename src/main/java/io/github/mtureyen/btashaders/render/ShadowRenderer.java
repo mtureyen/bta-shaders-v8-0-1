@@ -21,6 +21,13 @@ import net.minecraft.client.render.texture.stitcher.TextureRegistry;
 import net.minecraft.client.render.uniform.UniformBlock;
 import net.minecraft.client.render.uniform.UniformBlockManager;
 import net.minecraft.core.world.World;
+import net.minecraft.client.render.EntityRendererDispatcher;
+import net.minecraft.client.render.TileEntityRenderDispatcher;
+import net.minecraft.client.render.camera.ICamera;
+import net.minecraft.client.render.tessellator.TessellatorGeneral;
+import net.minecraft.core.block.entity.TileEntity;
+import net.minecraft.core.entity.Entity;
+import java.util.List;
 import net.minecraft.core.world.pos.TilePos;
 import net.minecraft.core.world.weather.IPrecipitation;
 import net.minecraft.core.world.weather.Weather;
@@ -50,7 +57,7 @@ public class ShadowRenderer {
 	/** Half-size of the shadow box in blocks: shadows render within this radius of the camera. */
 	public static final float DISTANCE = 96.0F;
 	/** Depth range of the shadow camera in blocks (both directions), covers tall casters. */
-	private static final float DEPTH_RANGE = 256.0F;
+	public static final float DEPTH_RANGE = 256.0F;
 	/** Bounding radius of a 16^3 chunk around its center. */
 	private static final float CHUNK_RADIUS = 13.86F;
 	private static final float MOON_STRENGTH = 0.5F;
@@ -114,6 +121,114 @@ public class ShadowRenderer {
 
 	public ShadowRenderer(Minecraft mc) {
 		this.mc = mc;
+		instance = this;
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Entity shadows
+
+	private static ShadowRenderer instance = null;
+	/** True while entities are being drawn into the shadow map (see GLRendererMixin). */
+	private static boolean entityPass = false;
+	/** Draws nothing; replaces BTA's stock shaders during the entity shadow pass. */
+	private final Shader nullShader = new Shader();
+	private boolean entityShadowsBroken = false;
+
+	/**
+	 * GLRenderer.setShader / globalSetUniforms hook: during the entity shadow pass, every shader that
+	 * isn't one of ours (they know the shadow-map distortion) is swapped for the null shader, so name
+	 * tags, lines etc. don't leave stray shadows.
+	 */
+	public static Shader substituteShader(Shader shader) {
+		if (!entityPass || instance == null || !instance.nullShader.isEnabled()) {
+			return shader;
+		}
+		if (shader == Shaders.ENTITY || shader == Shaders.WORLD || shader == Shaders.ITEM
+			|| shader == Shaders.COLOR_WORLD || shader == Shaders.TERRAIN) {
+			return shader;
+		}
+		return instance.nullShader;
+	}
+
+	/** Real entity shadows are being drawn this frame (BTA's blob shadows can be skipped). */
+	public boolean entityShadowsActive() {
+		return this.shadowMapValid && this.entityShadowsEnabled();
+	}
+
+	private boolean entityShadowsEnabled() {
+		if (this.entityShadowsBroken) {
+			return false;
+		}
+		String setting = ShaderConfig.defines().get("ENTITY_SHADOWS");
+		return setting == null || !setting.trim().equals("0");
+	}
+
+	private static Shader[] shadowPassShaders() {
+		return new Shader[]{Shaders.ENTITY, Shaders.WORLD, Shaders.ITEM, Shaders.COLOR_WORLD, Shaders.TERRAIN};
+	}
+
+	private static void setShadowPassUniform(boolean on) {
+		for (Shader shader : shadowPassShaders()) {
+			if (shader.isEnabled()) {
+				shader.bind();
+				shader.uniformInt("btsShadowPass", on ? 1 : 0);
+			}
+		}
+		GL41.glUseProgram(0);
+	}
+
+	/**
+	 * Mobs, the player (also in first person: you see your own shadow), dropped items and block
+	 * entities, culled against the shadow box rather than the camera, so things behind you still cast
+	 * shadows into view. The shadow framebuffer and matrices are bound by the caller.
+	 */
+	private void renderEntityShadows(float partialTicks) {
+		World world = this.mc.currentWorld;
+		ICamera camera = this.mc.activeCamera;
+		if (world == null || camera == null) {
+			return;
+		}
+		setShadowPassUniform(true);
+		entityPass = true;
+		try {
+			EntityRendererDispatcher.instance.cacheActiveRenderInfo(camera, partialTicks);
+			TileEntityRenderDispatcher.instance.cacheActiveRenderInfo(camera, partialTicks);
+			EntityRendererDispatcher.renderPosX = this.cameraPos.x;
+			EntityRendererDispatcher.renderPosY = this.cameraPos.y;
+			EntityRendererDispatcher.renderPosZ = this.cameraPos.z;
+			TileEntityRenderDispatcher.renderPosX = this.cameraPos.x;
+			TileEntityRenderDispatcher.renderPosY = this.cameraPos.y;
+			TileEntityRenderDispatcher.renderPosZ = this.cameraPos.z;
+			TessellatorGeneral tessellator = GLRenderer.getTessellator();
+			float limit = DISTANCE + 4.0F;
+			List<Entity> entities = world.getLoadedEntityList();
+			for (int i = 0; i < entities.size(); i++) {
+				Entity entity = entities.get(i);
+				if (this.inShadowBox(entity.x, entity.y + 1.0, entity.z, limit)) {
+					EntityRendererDispatcher.instance.renderEntity(tessellator, entity, partialTicks);
+				}
+			}
+			List<TileEntity> tileEntities = this.mc.renderGlobal.renderableTileEntities;
+			for (int i = 0; i < tileEntities.size(); i++) {
+				TileEntity te = tileEntities.get(i);
+				if (this.inShadowBox(te.tilePos.x + 0.5, te.tilePos.y + 0.5, te.tilePos.z + 0.5, limit)) {
+					TileEntityRenderDispatcher.instance.renderTileEntity(tessellator, camera, world, te, partialTicks);
+				}
+			}
+		} catch (Throwable t) {
+			// Never let a misbehaving entity renderer take the whole frame down: turn the feature off.
+			this.entityShadowsBroken = true;
+			BtaShaders.LOGGER.error("Entity shadow pass failed; entity shadows disabled.", t);
+		} finally {
+			entityPass = false;
+			setShadowPassUniform(false);
+		}
+	}
+
+	private boolean inShadowBox(double x, double y, double z, float limit) {
+		this.scratch.set((float) (x - this.cameraPos.x), (float) (y - this.cameraPos.y), (float) (z - this.cameraPos.z));
+		this.shadowView.transformPosition(this.scratch);
+		return Math.abs(this.scratch.x) < limit && Math.abs(this.scratch.y) < limit;
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -130,6 +245,9 @@ public class ShadowRenderer {
 		} else {
 			BtaShaders.LOGGER.warn("Shadow shader failed to compile; shadows disabled.");
 		}
+		this.nullShader.delete();
+		this.nullShader.compile(provider, "null");
+		this.entityShadowsBroken = false;
 		if (this.fbo == 0) {
 			this.createFramebuffer();
 		}
@@ -272,6 +390,11 @@ public class ShadowRenderer {
 		}
 		if (vertexConfig != null) {
 			vertexConfig.disable();
+		}
+
+		if (this.entityShadowsEnabled()) {
+			GLRenderer.modelM4f().identity();
+			this.renderEntityShadows(partialTicks);
 		}
 
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -429,6 +552,7 @@ public class ShadowRenderer {
 		shader.uniformFloat("btsShadowStrength", this.shadowStrength);
 		shader.uniformFloat("btsShadowTexel", 1.0F / RESOLUTION);
 		shader.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / RESOLUTION);
+		shader.uniformFloat("btsShadowDepthSpan", 2.0F * DEPTH_RANGE);
 	}
 
 	/** Camera position split for float precision: fract (block centers) and mod 1024 (waving phase). */
@@ -449,6 +573,10 @@ public class ShadowRenderer {
 
 	public Matrix4f getShadowMatrix() {
 		return this.shadowMatrix;
+	}
+
+	public float getShadowStrength() {
+		return this.shadowStrength;
 	}
 
 	public float getSunHeight() {

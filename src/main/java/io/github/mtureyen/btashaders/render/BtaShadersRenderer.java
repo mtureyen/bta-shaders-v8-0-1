@@ -298,6 +298,16 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			&& Shaders.COLOR_WORLD.isEnabled() && this.mc.currentWorld != null
 			&& WorldTypeFXDispatcher.getInstance().getDispatch(this.mc.currentWorld.getWorldType()).hasSky();
 		this.lighting.beginWorld(this.enabled, this.isEyeInWater(partialTicks), this.ownSky);
+		if (this.enabled) {
+			// Cloud layer state for cloud shadows in every lit shader.
+			for (Shader shader : LightingState.litShaders()) {
+				if (shader.isEnabled()) {
+					shader.bind();
+					this.setCloudUniforms(shader);
+				}
+			}
+			GL41.glUseProgram(0);
+		}
 		super.beginRenderWorld(partialTicks);
 		if (this.ownSky) {
 			// Sky pixels must start black: only BTA's sun/moon/stars land there; our sky goes behind
@@ -346,7 +356,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	}
 
 	private void setCloudUniforms(Shader shader) {
-		Vector3d cam = this.cameraPos;
+		Vector3d cam = this.shadows.getCameraPos(); // this frame (updated by the shadow pass)
 		shader.uniformVec3f("btsCameraMod",
 			(float) (cam.x - Math.floor(cam.x / 1024.0) * 1024.0),
 			(float) (cam.y - Math.floor(cam.y / 1024.0) * 1024.0),
@@ -609,7 +619,20 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		shader.uniformVec2f("btsViewSize", this.renderWidth, this.renderHeight);
 		ShaderHelper.setUniforms(this.mc, shader, this.mc.timer.partialTicks);
 		this.setAtmosphereUniforms(shader);
+		this.setCloudUniforms(shader);
+		shader.uniformFloat("btsFrame", (float) (this.frameIndex % 1024));
+		// Volumetric light reads the shadow map through the compare sampler.
+		boolean shadowsValid = this.shadows.isShadowMapValid();
+		GL41.glActiveTexture(GL_TEXTURE0 + LightingState.OPAQUE_COLOR_UNIT);
+		GL41.glBindTexture(GL_TEXTURE_2D, shadowsValid ? this.shadows.getDepthTexture() : 0);
+		GL41.glBindSampler(LightingState.OPAQUE_COLOR_UNIT, shadowsValid ? this.shadows.getCompareSampler() : 0);
+		GL41.glActiveTexture(GL_TEXTURE0);
+		shader.uniformInt("btsShadowTex", LightingState.OPAQUE_COLOR_UNIT);
+		shader.uniformInt("btsShadowsOn", shadowsValid ? 1 : 0);
+		shader.uniformMat4f("btsShadowMatrix", this.shadows.getShadowMatrix());
+		shader.uniformFloat("btsShadowStrength", this.shadows.getShadowStrength());
 		ShaderHelper.drawFullscreenRect();
+		GL41.glBindSampler(LightingState.OPAQUE_COLOR_UNIT, 0);
 		return this.mapped.getTexture();
 	}
 
@@ -722,6 +745,9 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		this.exposure.reload();
 		if (this.tonemapShader.isEnabled()) {
 			ShadowRenderer.bindUniformBlocks(this.tonemapShader);
+			this.tonemapShader.bind();
+			this.tonemapShader.uniformInt("btsShadowTex", LightingState.OPAQUE_COLOR_UNIT); // never share unit 0
+			GL41.glUseProgram(0);
 		}
 		if (this.copyShader.isEnabled()) {
 			this.copyShader.bind();

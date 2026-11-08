@@ -23,6 +23,13 @@ uniform mat4 btsViewInv;
 uniform vec2 btsSunScreen;
 uniform float btsGodRayStrength;
 uniform int isEyeInLiquid;
+uniform float btsFrame;
+
+// Volumetric light: the shadow map (same as the world shaders use).
+uniform sampler2DShadow btsShadowTex;
+uniform mat4 btsShadowMatrix;
+uniform int btsShadowsOn;
+uniform float btsShadowStrength;
 
 layout (std140) uniform FogState {
     vec4 color;
@@ -32,15 +39,48 @@ layout (std140) uniform FogState {
     float density;
 } fogState;
 
-#include "lib/sky.glsl"
+#include "lib/clouds.glsl"   // cloud shadows in the volumetric light (includes the sky)
+
+float ign(vec2 p) {
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
 
 float luma(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-float ign(vec2 p) {
-    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+// Real volumetric light (replaces the screen-space god rays): march along the view ray and ask the
+// shadow map + cloud shadow how much sunlight reaches each point of air; forward scattering makes it
+// strongest when looking towards the sun. Works with the sun off-screen, and through trees/windows.
+float volumetricLight(vec3 viewDir, float sceneDist) {
+    if (btsShadowsOn == 0) return 0.0;
+    float maxDist = min(sceneDist, VL_DISTANCE);
+    float jitter = fract(ign(gl_FragCoord.xy) + 0.618034 * mod(btsFrame, 64.0));
+    float sum = 0.0;
+    for (int i = 0; i < VL_STEPS; i++) {
+        float t = (float(i) + jitter) / float(VL_STEPS);
+        float d = t * t * maxDist; // denser samples close to the camera
+        vec3 p = viewDir * d;
+        vec3 clip = (btsShadowMatrix * vec4(p, 1.0)).xyz;
+        float lit = 1.0;
+        if (abs(clip.x) < 1.0 && abs(clip.y) < 1.0 && clip.z < 1.0) {
+            vec2 uv = clip.xy / (length(clip.xy) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT)) * 0.5 + 0.5;
+            lit = textureLod(btsShadowTex, vec3(uv, clip.z * 0.5 + 0.5 - 0.0002), 0.0);
+        }
+        lit *= cloudShadow(p);
+        // Each sample stands for a segment whose length grows with t^2.
+        sum += lit * (2.0 * t + 1.0 / float(VL_STEPS));
+    }
+    float segments = sum / float(VL_STEPS);
+    return segments * (maxDist / VL_DISTANCE);
 }
+
+// Henyey-Greenstein phase function: how much light scatters towards the camera.
+float phaseHG(float cosTheta, float g) {
+    float g2 = g * g;
+    return (1.0 - g2) / (4.0 * 3.14159265 * pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5));
+}
+
 
 // Light hue pushed towards warm gold (the plain light hue reads cold on top of a blue sky).
 vec3 warmLight() {
@@ -114,9 +154,22 @@ void main() {
             float amount = (1.0 - exp(-dist / 14.0)) * UNDERWATER_FOG;
             color = mix(color, toLinear(vec3(0.05, 0.20, 0.28)) * (0.3 + 0.7 * luma(toLinear(fogState.color.rgb))), amount);
         }
+#if VOLUMETRIC_LIGHT
+        if (isEyeInLiquid == 0 && depth > 0.07) {
+            float sceneDist = depth >= 1.0 ? VL_DISTANCE : dist;
+            float vl = volumetricLight(viewDir, sceneDist);
+            float cosTheta = dot(viewDir, btsLightDir);
+            // Mostly forward scattering, plus a little in every direction.
+            float phase = mix(phaseHG(cosTheta, 0.65), 1.0 / (4.0 * 3.14159265), 0.35) * 4.0 * 3.14159265;
+            // Hazier air in the morning/evening, little at noon, more in rain (but no direct sun then).
+            float density = VL_STRENGTH * (0.35 + 0.65 * sunset) * (1.0 - btsRain * 0.7) * btsShadowStrength;
+            color += lightColor * LIGHT_WARM_COLOR * vl * phase * density;
+        }
+#else
         if (btsGodRayStrength > 0.001 && isEyeInLiquid == 0) {
             color += hue * luma(lightColor) * godRays() * btsGodRayStrength * GODRAY_INTENSITY;
         }
+#endif
     }
 
 #if BLOOM

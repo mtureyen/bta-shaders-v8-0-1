@@ -15,7 +15,6 @@ uniform mat4 btsProj;
 uniform mat4 btsViewInv;
 uniform vec2 btsViewSize;
 uniform float btsFrame;
-uniform float frameTimeCounter;
 uniform int btsOwnSky;         // 1 = BTA's sky dome was suppressed: draw ours here
 uniform int isEyeInLiquid;
 uniform sampler2D btsGNormal;  // G-buffer: world normal + material (lib/gbuffer.glsl)

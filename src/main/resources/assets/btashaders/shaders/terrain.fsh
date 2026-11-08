@@ -19,8 +19,6 @@ uniform float uLightMapStrength;
 uniform float uAlphaTest;
 uniform vec4 uColor;
 uniform vec2 uViewPortSize;
-uniform float frameTimeCounter;
-uniform vec3 btsCameraMod;
 uniform int btsWaterPass;          // 1 while the translucent pass runs with a valid opaque copy
 
 uniform mat4 normalTransform;
@@ -47,7 +45,13 @@ uniform sampler2D colormasktex;
 #include "lib/gbuffer.glsl"
 #include "lib/water.glsl"
 
+uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
+
 void main() {
+    if (btsShadowPass == 1) {
+        if (texture(colortex, TexCoord).a < 0.5) discard;
+        return;
+    }
     vec3 geoNormal = geometricNormal(RelPos); // derivatives: keep in uniform control flow
     vec3 btaLight = btaDirectionalLight(geoNormal, normalTransform, lightModelAmbient,
                                         lightSourcePosition1, lightSourcePosition2, lightSourceDiffuse1);

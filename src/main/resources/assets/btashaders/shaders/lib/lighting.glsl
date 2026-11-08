@@ -18,10 +18,12 @@ uniform float btsShadowStrength;
 uniform float btsShadowTexel;       // 1 / shadow map resolution
 uniform float btsShadowWorldTexel;  // one shadow texel in blocks (before distortion)
 uniform mat4 btsShadowMatrix;       // camera-relative position -> shadow clip space
+uniform sampler2D btsShadowDepthRaw; // same shadow map without hardware compare (PCSS blocker search)
+uniform float btsShadowDepthSpan;   // blocks covered by the shadow map's 0..1 depth range
 uniform vec3 btsCameraFract;        // fract(camera position)
 uniform int btsEyeInWater;
 
-#include "lib/atmosphere.glsl"
+#include "lib/clouds.glsl"          // cloud shadows (includes sky + atmosphere)
 
 // Direct sun visibility of the last computeLight() call (for the G-buffer).
 float btsDirectOut = 0.0;
@@ -77,8 +79,34 @@ float shadowAmount(vec3 relPos, vec3 geoNormal, bool foliage, float sky) {
     // space and distorted one by one (constant softness in world units). TAA averages the noise.
     int samples = foliage ? FOLIAGE_SHADOW_SAMPLES : SHADOW_SAMPLES;
     float radius = SHADOW_FILTER_RADIUS * (foliage ? FOLIAGE_FILTER_MULT : 1.0);
-    float clipStep = radius * btsShadowTexel * 2.0 * distortFactor(clip.xy);
+    float texelClip = btsShadowTexel * 2.0 * distortFactor(clip.xy); // one texel here, in clip units
     float rotation = interleavedNoise(gl_FragCoord.xy) * 6.2831853;
+#if PCSS
+    if (!foliage) {
+        // Contact-hardening (PCSS): find the average depth of whatever blocks the light nearby; the
+        // further the shadow falls from its caster, the softer it gets (like a real sun's penumbra).
+        float blockerSum = 0.0;
+        float blockers = 0.0;
+        float searchClip = PCSS_SEARCH_RADIUS * texelClip;
+        for (int i = 0; i < PCSS_BLOCKER_SAMPLES; i++) {
+            float r = sqrt((float(i) + 0.5) / float(PCSS_BLOCKER_SAMPLES));
+            float a = rotation + float(i) * 2.3999632;
+            vec2 tap = clip.xy + vec2(cos(a), sin(a)) * r * searchClip;
+            float d = textureLod(btsShadowDepthRaw, tap / distortFactor(tap) * 0.5 + 0.5, 0.0).r;
+            if (d < refDepth) {
+                blockerSum += d;
+                blockers += 1.0;
+            }
+        }
+        if (blockers < 0.5) {
+            return 0.0; // nothing in the way: fully lit, skip the filter
+        }
+        float blockerDistance = (refDepth - blockerSum / blockers) * btsShadowDepthSpan; // blocks
+        float texelWorld = btsShadowWorldTexel * distortFactor(clip.xy);
+        radius = clamp(blockerDistance * PCSS_SOFTNESS / texelWorld, PCSS_MIN_RADIUS, PCSS_MAX_RADIUS);
+    }
+#endif
+    float clipStep = radius * texelClip;
     float lit = 0.0;
     for (int i = 0; i < FOLIAGE_SHADOW_SAMPLES; i++) {
         if (i >= samples) break;
@@ -115,6 +143,7 @@ float directVisibility(vec3 relPos, vec3 geoNormal, int material, float sky) {
     float sky2 = sky * sky;
     float sky8 = sky2 * sky2 * sky2 * sky2;
     float vis = nDotL * (1.0 - shadowAmount(relPos, geoNormal, foliage, sky)) * sky8;
+    vis *= cloudShadow(relPos);
     // Subsurface: thin foliage always lets some sunlight through, even inside its own (or a
     // neighbouring) canopy's shadow. Keeps trees green instead of black.
     if (material == MAT_LEAVES) {

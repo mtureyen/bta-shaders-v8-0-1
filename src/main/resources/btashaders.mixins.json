@@ -9,6 +9,8 @@
   "client": [
     "ChunkRendererAccessor",
     "ChunkRendererMultiDrawMixin",
+    "EntityRendererMixin",
+    "GLRendererMixin",
     "MinecraftMixin",
     "RenderGlobalAccessor",
     "RenderGlobalSkyMixin",
