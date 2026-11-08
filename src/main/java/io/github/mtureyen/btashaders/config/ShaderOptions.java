@@ -80,6 +80,8 @@ public final class ShaderOptions {
 			ShaderOption.slider("VL_STRENGTH", "Light Shaft Strength", 0.0F, 0.3F, 0.01F),
 			ShaderOption.samples("VL_STEPS", "Light Shaft Quality", 4, 32),
 			ShaderOption.slider("ATMOS_STRENGTH", "Distance Haze", 0.0F, 0.4F, 0.01F),
+			ShaderOption.toggle("BORDER_FOG", "Border Fog"),
+			ShaderOption.slider("BORDER_FOG_START", "Border Fog Start", 0.3F, 0.9F, 0.01F),
 			ShaderOption.slider("UNDERWATER_FOG", "Underwater Fog", 0.0F, 1.0F, 0.05F)
 		)),
 		new Page("Surfaces", List.of(

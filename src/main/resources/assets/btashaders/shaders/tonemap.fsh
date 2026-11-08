@@ -24,6 +24,7 @@ uniform vec2 btsSunScreen;
 uniform float btsGodRayStrength;
 uniform int isEyeInLiquid;
 uniform float btsFrame;
+uniform float btsFarDistance;  // blocks to the edge of the loaded terrain (square around the camera)
 
 // Volumetric light: the shadow map (same as the world shaders use).
 uniform sampler2DShadow btsShadowTex;
@@ -150,6 +151,15 @@ void main() {
             vec3 horizonDir = normalize(vec3(viewDir.x, clamp(viewDir.y, 0.02, 0.3), viewDir.z));
             color = mix(color, skyColor(horizonDir), amount);
         }
+#if BORDER_FOG
+        if (depth < 1.0 && depth > 0.07 && isEyeInLiquid == 0) {
+            // Border fog: the loaded terrain ends in a hard square edge at the view distance (very
+            // visible on flat water reflecting the sky); fade the last stretch into the sky behind it.
+            float edge = max(abs(relPos.x), abs(relPos.z)) / max(btsFarDistance, 32.0);
+            float border = smoothstep(BORDER_FOG_START, 0.92, edge);
+            color = mix(color, skyColor(viewDir), border);
+        }
+#endif
         if (isEyeInLiquid == 1 && depth > 0.07) {
             float amount = (1.0 - exp(-dist / 14.0)) * UNDERWATER_FOG;
             color = mix(color, toLinear(vec3(0.05, 0.20, 0.28)) * (0.3 + 0.7 * luma(toLinear(fogState.color.rgb))), amount);

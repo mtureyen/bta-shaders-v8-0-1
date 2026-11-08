@@ -35,8 +35,10 @@ uniform sampler2D lighttex;
 
 uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
 uniform int btsPrecipitation; // 1 while BTA draws rain/snow
+uniform sampler2D btsOpaqueDepth; // opaque scene depth (WaterPass copy, made before translucents)
 
 void main() {
+    gl_FragDepth = gl_FragCoord.z;
     if (btsShadowPass == 1) {
         if (texture(colortex, TexCoord).a < 0.5) discard;
         return;
@@ -48,6 +50,10 @@ void main() {
         vec3 sky = texture(lighttex, LightMapCoord).rgb;
         vec4 streak = tex * Color * uColor * vec4(sky * 1.1, PRECIPITATION_OPACITY);
         FragColor = computeFog(streak);
+        // Over open sky, leave the depth at "sky": our sky + clouds are filled in behind depth == 1 later,
+        // and a streak claiming the pixel would turn into a dark bar. Over terrain: normal depth, so
+        // nearer streaks hide farther ones like in stock BTA (no stacked haze).
+        if (texelFetch(btsOpaqueDepth, ivec2(gl_FragCoord.xy), 0).r >= 1.0) gl_FragDepth = 1.0;
         if (FragColor.a < uAlphaTest) discard;
         return;
     }

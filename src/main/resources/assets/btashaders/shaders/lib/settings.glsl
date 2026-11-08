@@ -344,6 +344,12 @@
 #ifndef LIGHT_WARM_COLOR
 #define LIGHT_WARM_COLOR vec3(1.0, 0.78, 0.50) // tint for god rays / sun glow / haze near the sun
 #endif
+#ifndef BORDER_FOG
+#define BORDER_FOG 1                 // fade terrain into the sky at the view-distance edge
+#endif
+#ifndef BORDER_FOG_START
+#define BORDER_FOG_START 0.65        // where the fade starts (fraction of the view distance)
+#endif
 #ifndef ATMOS_DENSITY
 #define ATMOS_DENSITY 0.004          // aerial perspective (distant terrain picks up sky/sun color)
 #endif

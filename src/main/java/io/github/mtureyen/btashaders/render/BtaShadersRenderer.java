@@ -125,9 +125,6 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		if (location >= 0) {
 			GL41.glProgramUniform1i(shader.id(), location, on ? 1 : 0);
 		}
-		// Streaks must not write depth: our sky is filled in behind depth == 1 pixels later, and rain
-		// that claims those pixels would show up as dark bars against the sky.
-		GLRenderer.setDepthMask(!on);
 	}
 
 	public ShadowRenderer getShadows() {

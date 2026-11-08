@@ -1,6 +1,7 @@
 package io.github.mtureyen.btashaders.render;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.option.GameSettings;
 import net.minecraft.client.render.shader.Shader;
 import net.minecraft.client.render.worldtype.WorldTypeFXDispatcher;
 import org.joml.Vector3d;
@@ -60,6 +61,8 @@ public final class SceneUniforms {
 			shader.uniformFloat("btsSunHeight", shadows.getSunHeight());
 			shader.uniformFloat("btsRain", shadows.getRain());
 		}
+		// Loaded terrain ends in a square this far around the camera (border fog hides the edge).
+		shader.uniformFloat("btsFarDistance", Math.max(GameSettings.RENDER_DISTANCE.value, 2) * 16.0F);
 		shader.uniformInt("btsWorldValid", worldValid ? 1 : 0);
 		shader.uniformVec2f("btsSunScreen", sunU, sunV);
 		shader.uniformFloat("btsGodRayStrength", strength);
