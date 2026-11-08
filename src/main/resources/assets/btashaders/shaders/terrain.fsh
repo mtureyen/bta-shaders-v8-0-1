@@ -43,8 +43,8 @@ uniform sampler2D colormasktex;
 #include "lib/lighting.glsl"
 #include "lib/sky.glsl"
 #include "lib/gbuffer.glsl"
-#include "lib/water.glsl"
 #include "lib/surface.glsl"
+#include "lib/water.glsl"
 
 uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
 
@@ -54,13 +54,15 @@ void main() {
         return;
     }
     vec3 geoNormal = geometricNormal(RelPos); // derivatives: keep in uniform control flow
+    readPbr(TexCoord, RelPos, geoNormal);    // labPBR maps (derivatives too)
+    if (pbrSurfaceMaterial(Material) && dot(btsPbrNormal, btsPbrNormal) > 0.5) btsShadeNormal = btsPbrNormal;
     vec3 btaLight = btaDirectionalLight(geoNormal, normalTransform, lightModelAmbient,
                                         lightSourcePosition1, lightSourcePosition2, lightSourceDiffuse1);
 
     vec2 emissiveBrightness = texture(emissivetex, TexCoord).xy;
     vec3 light = computeLight(LightMapCoord, emissiveBrightness, RelPos, geoNormal, Material);
     Surface surf = surfaceFor(Material, geoNormal, RelPos, skyFactor(LightMapCoord.y));
-    writeGBuffer(surf.normal, Material, LightMapCoord, btsDirectOut, surf.smoothness);
+    writeGBuffer(surf.normal, surf.metal > 0.5 ? MAT_METAL : Material, LightMapCoord, btsDirectOut, surf.smoothness);
     vec4 lightColor = mix(vec4(1.0), vec4(light, 1.0), uLightMapStrength);
 
     vec4 texColor = texture(colortex, TexCoord);
@@ -68,12 +70,13 @@ void main() {
     vec4 c = vec4(mix(vec3(1, 1, 1), Color.rgb, maskColor.r), 1) * uColor;
 
     float shadeEffect = 1 - max(emissiveBrightness.x, emissiveBrightness.y);
-    float s = mix(1, bakedShade(Shade), shadeEffect);
+    float s = mix(1, bakedShade(Shade), shadeEffect) * mix(1.0, btsPbrAO, 0.85);
 
     vec3 albedo = wetAlbedo(texColor.rgb * c.rgb, surf);
     vec4 postColor = vec4(albedo, texColor.a * c.a) * vec4(s, s, s, 1) * lightColor;
     vec4 litColor = vec4(postColor.rgb * faceShading(btaLight, geoNormal), postColor.a);
     litColor.rgb = addSpecular(litColor.rgb, albedo, surf, RelPos, btsDirectOut);
+    litColor.rgb = addPbrEmission(litColor.rgb, albedo);
 
     if (btsWaterPass == 1 && btsLightingOn == 1 && Material == MAT_WATER) {
         float sky = skyFactor(LightMapCoord.y);

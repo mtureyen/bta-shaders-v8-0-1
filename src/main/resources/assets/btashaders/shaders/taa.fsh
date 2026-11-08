@@ -1,8 +1,8 @@
 #version 410 core
 // BTA Shaders: temporal anti-aliasing.
 // The world projection is jittered by a sub-pixel Halton offset every frame. Here we reproject last
-// frame's resolved image onto this frame using depth + camera matrices (no velocity buffer, like
-// Complementary/Photon), clamp it to this frame's 3x3 neighbourhood to reject stale history, and blend.
+// frame's resolved image onto this frame using depth + camera matrices, plus per-entity motion from
+// the G-buffer (walking mobs), clamp it to this frame's 3x3 neighbourhood to reject stale history, and blend.
 // This smooths edges and averages away the noise of the soft shadow filter.
 
 in vec2 TexCoords;
@@ -18,6 +18,12 @@ uniform mat4 btsPrevViewProj;  // last frame's (un-jittered) projection * view
 uniform vec3 btsCameraDelta;   // camera position now - camera position last frame
 uniform vec2 btsViewSize;      // render size in pixels
 uniform bool btsHistoryValid;
+uniform sampler2D btsGNormal;    // G-buffer: material code (entities get a tighter history clamp)
+uniform sampler2D btsGMotion;    // G-buffer: entity motion since last frame (blocks)
+uniform bool btsGBufferValid;
+
+#define GBUFFER_READ_ONLY
+#include "lib/gbuffer.glsl"
 
 // Depth of the first-person hand is squeezed into [0, 0.05] by BTA's hand projection; it moves with
 // the camera, so camera reprojection is wrong for it. Leave it alone.
@@ -70,25 +76,45 @@ void main() {
         return;
     }
 
-    // Neighbourhood min/max for history clamping.
+    // Neighbourhood min/max + mean/variance for history clamping; the nearest pixel around us also
+    // decides the motion (so a moving mob's silhouette edge moves with the mob).
     ivec2 pixel = ivec2(gl_FragCoord.xy);
     ivec2 maxPixel = ivec2(btsViewSize) - 1;
     vec3 boxMin = current;
     vec3 boxMax = current;
+    vec3 m1 = current;
+    vec3 m2 = current * current;
+    float nearestDepth = depth;
+    ivec2 nearestPixel = pixel;
     for (int x = -1; x <= 1; x++) {
         for (int y = -1; y <= 1; y++) {
             if (x == 0 && y == 0) continue;
-            vec3 c = texelFetch(colortex0, clamp(pixel + ivec2(x, y), ivec2(0), maxPixel), 0).rgb;
+            ivec2 q = clamp(pixel + ivec2(x, y), ivec2(0), maxPixel);
+            vec3 c = texelFetch(colortex0, q, 0).rgb;
             boxMin = min(boxMin, c);
             boxMax = max(boxMax, c);
+            m1 += c;
+            m2 += c * c;
+            float d = texelFetch(depthtex0, q, 0).r;
+            if (d < nearestDepth && d >= HAND_DEPTH) {
+                nearestDepth = d;
+                nearestPixel = q;
+            }
         }
     }
+    vec3 motion = vec3(0.0);
+    bool entity = false;
+    if (btsGBufferValid) {
+        motion = texelFetch(btsGMotion, nearestPixel, 0).xyz;
+        entity = gbufferCode(texelFetch(btsGNormal, pixel, 0)) == GCODE_ENTITY;
+    }
+    bool moving = dot(motion, motion) > 1e-8;
 
     // Reproject: screen -> camera-relative world (this frame) -> last frame's screen.
     vec4 viewPos = btsProjInv * vec4(TexCoords * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     viewPos /= viewPos.w;
     vec3 relPos = (btsViewInv * viewPos).xyz;
-    vec4 prevClip = btsPrevViewProj * vec4(relPos + btsCameraDelta, 1.0);
+    vec4 prevClip = btsPrevViewProj * vec4(relPos + btsCameraDelta - motion, 1.0);
     if (prevClip.w <= 0.0) {
         FragColor = vec4(current, 1.0);
         return;
@@ -99,11 +125,21 @@ void main() {
         return;
     }
 
-    vec3 history = clipAABB(sampleHistory(prevUV), boxMin, boxMax);
+    vec3 history = sampleHistory(prevUV);
+    if (entity || moving) {
+        // Mobs animate (limbs, turning) beyond what the motion vector covers: clip to a tighter box
+        // around the neighbourhood mean (variance clipping) so their history can't smear.
+        vec3 mean = m1 / 9.0;
+        vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, 0.0));
+        boxMin = max(boxMin, mean - sigma * 1.1);
+        boxMax = min(boxMax, mean + sigma * 1.1);
+    }
+    history = clipAABB(history, boxMin, boxMax);
 
     // History weight: ~0.9 when still, less when moving fast (less ghosting/blur in motion).
     vec2 velocityPx = (prevUV - TexCoords) * btsViewSize;
     float blend = max(exp(-dot(velocityPx, velocityPx) * 0.1) * 0.2 + 0.7, 0.4);
+    if (entity || moving) blend = min(blend, 0.8);
 
     FragColor = vec4(mix(current, history, blend), 1.0);
 }

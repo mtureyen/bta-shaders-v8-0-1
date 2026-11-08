@@ -3,6 +3,7 @@
 //   location 1, gNormal (RGBA16F): xy = octahedral world normal * 0.5 + 0.5,
 //                                  z = (material code + smoothness * 0.9) / 16, w = 1
 //   location 2, gData (RGBA8):     r = sky light, g = block light, b = direct sun visibility, w = 1 (written)
+//   location 3, gMotion (RGBA16F):  xyz = object motion since last frame in blocks (entities), w = 1
 // Alpha is always 1: BTA draws entities with alpha blending on, which also applies to these targets,
 // and SRC_ALPHA/ONE_MINUS_SRC_ALPHA with alpha 1 simply replaces the old value.
 // Material codes: 0-9 terrain materials (lib/materials.glsl), 12 entity, 13 item/world object, 14 other.
@@ -49,6 +50,8 @@ float gbufferSmoothness(vec4 gNormal) {
 #ifndef GBUFFER_READ_ONLY
 layout (location = 1) out vec4 GNormal;
 layout (location = 2) out vec4 GData;
+layout (location = 3) out vec4 GMotion;
+uniform vec3 btsObjectMotion;   // this entity's movement since last frame (EntityMotion.java), else 0
 
 void writeGBuffer(vec3 worldNormal, int code, vec2 lightCoord, float directVis, float smoothness) {
     float codeAndSmooth = (float(code) + clamp(smoothness, 0.0, 1.0) * 0.9) / 16.0;
@@ -56,6 +59,7 @@ void writeGBuffer(vec3 worldNormal, int code, vec2 lightCoord, float directVis, 
     float sky = clamp((lightCoord.y * 16.0 - 0.5) / 15.0, 0.0, 1.0);
     float block = clamp((lightCoord.x * 16.0 - 0.5) / 15.0, 0.0, 1.0);
     GData = vec4(sky, block, clamp(directVis, 0.0, 1.0), 1.0);
+    GMotion = vec4(btsObjectMotion, 1.0);
 }
 
 void writeGBuffer(vec3 worldNormal, int code, vec2 lightCoord, float directVis) {

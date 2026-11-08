@@ -18,8 +18,66 @@ struct Surface {
     float metal;        // 1 = reflections tinted by the albedo
     float wet;          // 0..1 wet film
     float puddle;       // 0..1 standing water
-    vec3 normal;        // shading normal (puddle ripples)
+    vec3 normal;        // shading normal (normal map, puddle ripples)
 };
+
+// ---- labPBR resource packs (PbrAtlas.java: extra layers of the block atlas) ----
+//   normal  (_n): rg = tangent-space normal xy (OpenGL style, green = up), b = AO, a = height
+//   specular(_s): r = perceptual smoothness, g = F0 (0-229) or metal (230-255), b = porosity (0-64),
+//                 a = emission (0-254, 255 = none)
+// An all-zero specular texel means "no PBR data": our per-material values apply.
+#if LABPBR
+uniform int btsPbrOn;
+uniform sampler2D btsNormalTex;
+uniform sampler2D btsSpecularTex;
+#endif
+vec4 btsPbrSpecular = vec4(0.0);
+vec3 btsPbrNormal = vec3(0.0);
+float btsPbrAO = 1.0;
+
+bool pbrSurfaceMaterial(int material) {
+    return material == MAT_DEFAULT || material == MAT_METAL || material == MAT_POLISHED || material == MAT_SNOW;
+}
+
+bool hasPbrSpecular() {
+    return btsPbrSpecular.r + btsPbrSpecular.g > 0.0;
+}
+
+// Reads the PBR maps at uv. The tangent frame comes from screen-space derivatives (cotangent frame),
+// so no tangents are needed in the vertex data. Call in uniform control flow (derivatives).
+void readPbr(vec2 uv, vec3 relPos, vec3 geoNormal) {
+#if LABPBR
+    vec3 dp1 = dFdx(relPos);
+    vec3 dp2 = dFdy(relPos);
+    vec2 duv1 = dFdx(uv);
+    vec2 duv2 = dFdy(uv);
+    if (btsPbrOn != 1) return;
+    vec4 normalTex = texture(btsNormalTex, uv);
+    btsPbrSpecular = texture(btsSpecularTex, uv);
+    btsPbrAO = normalTex.b;
+    vec3 dp2perp = cross(dp2, geoNormal);
+    vec3 dp1perp = cross(geoNormal, dp1);
+    vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
+    float invMax = inversesqrt(max(max(dot(t, t), dot(b, b)), 1e-30));
+    vec2 xy = (normalTex.rg * 2.0 - 1.0) * NORMAL_MAP_STRENGTH;
+    float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+    // Atlas v grows downwards while the map's green points up, hence -b.
+    vec3 n = t * invMax * xy.x - b * invMax * xy.y + geoNormal * z;
+    btsPbrNormal = dot(n, n) > 1e-6 ? normalize(n) : geoNormal;
+#endif
+}
+
+// Glow from the specular map's alpha, added to a lit gamma color.
+vec3 addPbrEmission(vec3 litGamma, vec3 albedoGamma) {
+#if LABPBR
+    float a = btsPbrSpecular.a * 255.0;
+    if (a < 254.5 && a > 0.5) {
+        return toGamma(toLinear(litGamma) + toLinear(albedoGamma) * (a / 254.0) * PBR_EMISSION);
+    }
+#endif
+    return litGamma;
+}
 
 float surfHash(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -42,23 +100,23 @@ float puddleMask(vec2 xz) {
     return smoothstep(threshold, threshold + 0.07, n);
 }
 
-// Raindrop rings on standing water: one drop per cell per cycle, two offset grids. Returns the
+// Raindrop rings on standing water: one drop per cell per cycle, three offset grids. Returns the
 // horizontal normal offset.
 vec2 rainRipples(vec2 xz, float t) {
     vec2 sum = vec2(0.0);
-    for (int layer = 0; layer < 2; layer++) {
-        vec2 q = xz * 1.7 + float(layer) * vec2(0.37, 0.71);
+    for (int layer = 0; layer < 3; layer++) {
+        vec2 q = xz * 1.4 + float(layer) * vec2(0.37, 0.71);
         vec2 cell = floor(q);
         vec2 center = cell + 0.25 + 0.5 * vec2(surfHash(cell), surfHash(cell + 7.13));
-        float phase = fract(t * 0.9 + surfHash(cell + 3.71) + float(layer) * 0.5);
+        float phase = fract(t * 1.1 + surfHash(cell + 3.71) + float(layer) * 0.33);
         vec2 d = q - center;
         float dist = length(d) + 1e-4;
-        float x = (dist - phase * 0.24) * 26.0;
+        float x = (dist - phase * 0.34) * 20.0;
         float ring = abs(x) < 1.0 ? sin(x * 3.14159265) : 0.0;
         float fade = (1.0 - phase) * (1.0 - phase);
         sum += d / dist * ring * fade;
     }
-    return sum * 0.35;
+    return sum * 0.55 * RIPPLE_STRENGTH;
 }
 
 Surface surfaceFor(int material, vec3 geoNormal, vec3 relPos, float sky) {
@@ -70,7 +128,21 @@ Surface surfaceFor(int material, vec3 geoNormal, vec3 relPos, float sky) {
     s.puddle = 0.0;
     s.normal = geoNormal;
     float porosity = 1.0;
-    if (material == MAT_METAL) {
+    bool pbrSurface = pbrSurfaceMaterial(material) && dot(btsPbrNormal, btsPbrNormal) > 0.5;
+    if (pbrSurface) s.normal = btsPbrNormal;
+    if (pbrSurface && hasPbrSpecular()) {
+        // The resource pack knows best.
+        s.smoothness = btsPbrSpecular.r;
+        float b = btsPbrSpecular.b * 255.0;
+        porosity = b < 64.5 ? b / 64.0 : 0.0;
+        if (btsPbrSpecular.g * 255.0 > 229.5) {
+            s.metal = 1.0;
+            porosity = 0.0;
+        } else {
+            s.f0 = btsPbrSpecular.g;
+        }
+        if (material == MAT_SNOW) return s;
+    } else if (material == MAT_METAL) {
         s.smoothness = SMOOTH_METAL;
         s.metal = 1.0;
         porosity = 0.0;
@@ -97,6 +169,7 @@ Surface surfaceFor(int material, vec3 geoNormal, vec3 relPos, float sky) {
         if (up > 0.0 && material != MAT_METAL) {
             vec3 world = relPos + btsCameraMod;
             s.puddle = puddleMask(world.xz) * up * exposed;
+            s.normal = normalize(mix(s.normal, geoNormal, s.puddle)); // standing water is flat
         }
 #endif
         s.smoothness = mix(s.smoothness, max(s.smoothness, WET_SMOOTHNESS), s.wet);

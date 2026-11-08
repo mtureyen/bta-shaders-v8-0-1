@@ -8,6 +8,7 @@ import org.lwjgl.opengl.GL41;
  * <pre>
  *   gNormal (RGBA16F): xyz = world normal * 0.5 + 0.5, w = material code / 16 (lib/gbuffer.glsl)
  *   gData   (RGBA8):   r = sky light, g = block light, b = direct sun visibility, a = 1 if written
+ *   gMotion (RGBA16F): xyz = how far the object moved since last frame (blocks; entities only), w = 1
  * </pre>
  * Written by our world shaders only: multiple render targets are switched on just around our own
  * draws (solid terrain, entities), so BTA's stock draws (particles, outlines, name tags, weather)
@@ -20,6 +21,8 @@ public final class GBuffer {
 	private static final int GL_COLOR_ATTACHMENT0 = 36064;
 	private static final int GL_COLOR_ATTACHMENT1 = 36065;
 	private static final int GL_COLOR_ATTACHMENT2 = 36066;
+	private static final int GL_COLOR_ATTACHMENT3 = 36067;
+	private static final int[] ALL_TARGETS = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
 	private static final int GL_RGBA16F = 34842;
 	private static final int GL_RGBA8 = 32856;
 	private static final int GL_RGBA = 6408;
@@ -30,6 +33,7 @@ public final class GBuffer {
 
 	private int normalTex = 0;
 	private int dataTex = 0;
+	private int motionTex = 0;
 	private int fbo = 0;
 	private int width = 0;
 	private int height = 0;
@@ -45,11 +49,13 @@ public final class GBuffer {
 		this.height = height;
 		this.normalTex = makeTexture(GL_RGBA16F, width, height);
 		this.dataTex = makeTexture(GL_RGBA8, width, height);
+		this.motionTex = makeTexture(GL_RGBA16F, width, height);
 		this.fbo = worldFbo;
 		int previous = GL41.glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING);
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, worldFbo);
 		GL41.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, this.normalTex, 0);
 		GL41.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, this.dataTex, 0);
+		GL41.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, this.motionTex, 0);
 		GL41.glDrawBuffers(GL_COLOR_ATTACHMENT0);
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, previous);
 		this.mrtActive = false;
@@ -67,26 +73,27 @@ public final class GBuffer {
 		return tex;
 	}
 
-	/** Start of the world pass (world framebuffer bound): reset both targets to "nothing written". */
+	/** Start of the world pass (world framebuffer bound): reset our targets to "nothing written". */
 	public void clear() {
 		if (!this.isBoundToWorld()) {
 			return;
 		}
-		GL41.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2});
+		GL41.glDrawBuffers(ALL_TARGETS);
 		float[] zero = {0.0F, 0.0F, 0.0F, 0.0F};
 		GL41.glClearBufferfv(GL_COLOR, 1, zero);
 		GL41.glClearBufferfv(GL_COLOR, 2, zero);
+		GL41.glClearBufferfv(GL_COLOR, 3, zero);
 		GL41.glDrawBuffers(GL_COLOR_ATTACHMENT0);
 		this.mrtActive = false;
 	}
 
-	/** Around our own draws: write all three targets, else only BTA's color target. */
+	/** Around our own draws: write all four targets, else only BTA's color target. */
 	public void setMrt(boolean on) {
 		if (on == this.mrtActive || !this.isBoundToWorld()) {
 			return;
 		}
 		if (on) {
-			GL41.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2});
+			GL41.glDrawBuffers(ALL_TARGETS);
 		} else {
 			GL41.glDrawBuffers(GL_COLOR_ATTACHMENT0);
 		}
@@ -114,6 +121,10 @@ public final class GBuffer {
 		return this.dataTex;
 	}
 
+	public int getMotionTexture() {
+		return this.motionTex;
+	}
+
 	/** Detaches nothing (the world framebuffer owns its lifetime); just drops our textures. */
 	public void delete() {
 		this.deleteTextures();
@@ -128,6 +139,10 @@ public final class GBuffer {
 		if (this.dataTex != 0) {
 			GL41.glDeleteTextures(this.dataTex);
 			this.dataTex = 0;
+		}
+		if (this.motionTex != 0) {
+			GL41.glDeleteTextures(this.motionTex);
+			this.motionTex = 0;
 		}
 		this.width = 0;
 		this.height = 0;

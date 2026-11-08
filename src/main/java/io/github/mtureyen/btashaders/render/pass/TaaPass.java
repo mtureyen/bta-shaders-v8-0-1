@@ -2,6 +2,7 @@ package io.github.mtureyen.btashaders.render.pass;
 
 import io.github.mtureyen.btashaders.render.ColorTarget;
 import io.github.mtureyen.btashaders.render.FrameState;
+import io.github.mtureyen.btashaders.render.GBuffer;
 import net.minecraft.client.render.shader.Shader;
 import net.minecraft.client.render.shader.ShaderHelper;
 import net.minecraft.client.render.shader.framebuffer.FrameBufferAttachment;
@@ -49,7 +50,8 @@ public final class TaaPass {
 		projection.translateLocal(j[0] * JITTER_SCALE * 2.0F / width, j[1] * JITTER_SCALE * 2.0F / height, 0.0F);
 	}
 
-	public int run(FrameState frame, FrameBufferAttachment worldColor, FrameBufferAttachment worldDepth, int sceneTexture) {
+	public int run(FrameState frame, FrameBufferAttachment worldColor, FrameBufferAttachment worldDepth, int sceneTexture,
+				   GBuffer gbuffer) {
 		for (ColorTarget target : this.history) {
 			if (target.ensureSize(frame.width, frame.height)) {
 				this.historyValid = false;
@@ -64,6 +66,12 @@ public final class TaaPass {
 		PassUtil.bindScene(s, "colortex0", 0, worldColor, sceneTexture);
 		PassUtil.bindAttachment(s, "depthtex0", 1, worldDepth);
 		PassUtil.bindTexture(s, "historytex", 2, read.getTexture());
+		boolean gbufferOn = gbuffer.isValid();
+		if (gbufferOn) {
+			PassUtil.bindTexture(s, "btsGNormal", 3, gbuffer.getNormalTexture());
+			PassUtil.bindTexture(s, "btsGMotion", 4, gbuffer.getMotionTexture());
+		}
+		s.uniformBool("btsGBufferValid", gbufferOn);
 		s.uniformMat4f("btsProjInv", frame.jitteredProjectionInverse());
 		s.uniformMat4f("btsViewInv", frame.viewInverse());
 		s.uniformMat4f("btsPrevViewProj", new Matrix4f(frame.prevProjection).mul(frame.prevView));

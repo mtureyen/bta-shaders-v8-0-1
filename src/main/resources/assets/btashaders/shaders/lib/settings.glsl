@@ -137,6 +137,15 @@
 #ifndef ENTITY_SHADOWS
 #define ENTITY_SHADOWS 1
 #endif
+#ifndef COLORED_SHADOWS
+#define COLORED_SHADOWS 1            // tinted glass and water color the light passing through them
+#endif
+#ifndef CAUSTICS
+#define CAUSTICS 1                   // moving light patterns under water
+#endif
+#ifndef CAUSTICS_STRENGTH
+#define CAUSTICS_STRENGTH 1.0
+#endif
 #ifndef FOLIAGE_FILTER_MULT
 #define FOLIAGE_FILTER_MULT 3.0
 #endif
@@ -215,8 +224,23 @@
 #ifndef WET_SMOOTHNESS
 #define WET_SMOOTHNESS 0.45          // smoothness of wet (non-puddle) surfaces
 #endif
+#ifndef PRECIPITATION_OPACITY
+#define PRECIPITATION_OPACITY 0.55   // how visible falling rain/snow streaks are
+#endif
 #ifndef RAIN_RIPPLES
 #define RAIN_RIPPLES 1
+#endif
+#ifndef LABPBR
+#define LABPBR 1                     // read normal + specular maps of labPBR resource packs (_n / _s textures)
+#endif
+#ifndef NORMAL_MAP_STRENGTH
+#define NORMAL_MAP_STRENGTH 1.0
+#endif
+#ifndef PBR_EMISSION
+#define PBR_EMISSION 1.0             // brightness of glowing parts from PBR specular maps
+#endif
+#ifndef RIPPLE_STRENGTH
+#define RIPPLE_STRENGTH 1.0          // how strongly raindrop rings bend puddle reflections
 #endif
 
 // ---- Ambient occlusion (prepare pass) ----

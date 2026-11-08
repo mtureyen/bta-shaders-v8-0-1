@@ -6,6 +6,7 @@ import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
@@ -20,5 +21,16 @@ public abstract class WorldRendererMixin {
 		if (renderer != null) {
 			renderer.onWorldProjection(matrix);
 		}
+	}
+
+	/** Rain/snow use the world shader: flag them so it shades them as light streaks, not as solid surfaces. */
+	@Inject(method = "renderPrecipitation", at = @At("HEAD"))
+	private void btashaders$beginPrecipitation(float partialTick, CallbackInfo ci) {
+		BtaShadersRenderer.setPrecipitation(true);
+	}
+
+	@Inject(method = "renderPrecipitation", at = @At("RETURN"))
+	private void btashaders$endPrecipitation(float partialTick, CallbackInfo ci) {
+		BtaShadersRenderer.setPrecipitation(false);
 	}
 }

@@ -27,6 +27,73 @@ uniform int btsEyeInWater;
 
 // Direct sun visibility of the last computeLight() call (for the G-buffer).
 float btsDirectOut = 0.0;
+// Optional shading normal (labPBR normal maps) for the sun's N.L; zero = use the geometric normal.
+vec3 btsShadeNormal = vec3(0.0);
+
+// ---- Colored shadows (ShadowRenderer's translucent map) ----
+// Light let through by translucent casters between the sun and the last shadowAmount() point
+// (white = nothing in the way). Multiplies the direct light in computeLight().
+vec3 btsShadowTint = vec3(1.0);
+
+#if COLORED_SHADOWS
+uniform int btsColoredShadowsOn;
+uniform sampler2DShadow btsShadowTexTranslucent; // opaque + translucent depth, hardware compare
+uniform sampler2D btsShadowDepthTranslucent;     // same, raw (water depth)
+uniform sampler2D btsShadowColor;                // rgb = light let through, a = 0 for water
+
+float causticHash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+float causticNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(causticHash(i), causticHash(i + vec2(1.0, 0.0)), u.x),
+               mix(causticHash(i + vec2(0.0, 1.0)), causticHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+// Thin bright lines where the noise crosses its middle value.
+float causticLines(vec2 p) {
+    float r = 1.0 - abs(causticNoise(p) * 2.0 - 1.0);
+    float r2 = r * r;
+    return r2 * r2 * r2;
+}
+
+// Underwater light pattern: two domain-warped line networks drifting against each other. Averages
+// to about 1, so caustics move light around rather than adding any.
+float caustics(vec2 p, float t) {
+    vec2 warp = vec2(causticNoise(p * 0.45 + t * 0.12), causticNoise(p * 0.45 - t * 0.10 + 7.3)) * 2.2;
+    float a = causticLines(p * 1.25 + warp + vec2(t * 0.18, 0.0));
+    float b = causticLines(p * 1.6 - warp + vec2(3.1, -t * 0.22));
+    return 0.55 + 1.6 * (a + b);
+}
+
+vec3 translucentTint(vec3 samplePos, vec2 uv, float refDepth) {
+    float clear = textureLod(btsShadowTexTranslucent, vec3(uv, refDepth), 0.0);
+    if (clear > 0.999) return vec3(1.0);
+    vec4 caster = textureLod(btsShadowColor, uv, 0.0);
+    vec3 tint;
+    if (caster.a < 0.5) {
+        // Under water: absorbed along the way down (same colors as looking through water), plus caustics.
+        float surface = textureLod(btsShadowDepthTranslucent, uv, 0.0).r;
+        float depthBlocks = max(refDepth - surface, 0.0) * btsShadowDepthSpan;
+        tint = exp(-depthBlocks * WATER_ABSORPTION * vec3(0.30, 0.09, 0.06) * 0.6);
+#if CAUSTICS
+        vec3 world = samplePos + btsCameraMod;
+        // Follow the light ray back up to the surface, so the pattern slants with the sun.
+        vec2 p = world.xz + btsLightDir.xz / max(btsLightDir.y, 0.25) * depthBlocks;
+        float amount = CAUSTICS_STRENGTH * smoothstep(0.0, 1.2, depthBlocks);
+        tint *= mix(1.0, caustics(p, frameTimeCounter * 0.8), amount);
+#endif
+    } else {
+        tint = toLinear(caster.rgb);
+    }
+    return mix(tint, vec3(1.0), clear);
+}
+#endif
 
 float distortFactor(vec2 clipXY) {
     return length(clipXY) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT);
@@ -50,6 +117,7 @@ bool isDiagonalFace(vec3 n) {
 
 // 0 = lit, 1 = fully shadowed. sky: 0..1 sky light at the fragment.
 float shadowAmount(vec3 relPos, vec3 geoNormal, bool foliage, float sky) {
+    btsShadowTint = vec3(1.0);
     if (btsShadowsOn == 0) {
         return 0.0;
     }
@@ -74,6 +142,13 @@ float shadowAmount(vec3 relPos, vec3 geoNormal, bool foliage, float sky) {
         return 0.0;
     }
     float refDepth = (clip.z * 0.5 + 0.5) - SHADOW_DEPTH_BIAS - (foliage ? 0.0001 : 0.0);
+    float edgeFade = 1.0 - smoothstep(0.8, 1.0, max(abs(clip.x), abs(clip.y)));
+#if COLORED_SHADOWS
+    if (btsColoredShadowsOn == 1) {
+        vec2 centerUV = clip.xy / distortFactor(clip.xy) * 0.5 + 0.5;
+        btsShadowTint = mix(vec3(1.0), translucentTint(samplePos, centerUV, refDepth), edgeFade * btsShadowStrength);
+    }
+#endif
 
     // Golden-angle spiral of hardware-filtered compares, rotated per pixel; taps offset in undistorted
     // space and distorted one by one (constant softness in world units). TAA averages the noise.
@@ -117,8 +192,7 @@ float shadowAmount(vec3 relPos, vec3 geoNormal, bool foliage, float sky) {
         lit += textureLod(btsShadowTex, vec3(uv, refDepth), 0.0);
     }
     float shadowed = 1.0 - lit / float(samples);
-    float fade = 1.0 - smoothstep(0.8, 1.0, max(abs(clip.x), abs(clip.y)));
-    return shadowed * fade * btsShadowStrength;
+    return shadowed * edgeFade * btsShadowStrength;
 }
 
 float skyFactor(float lightmapSky) {
@@ -136,6 +210,10 @@ float directVisibility(vec3 relPos, vec3 geoNormal, int material, float sky) {
         nDotL = 1.0;
     } else {
         nDotL = max(dot(geoNormal, btsLightDir), 0.0);
+        if (nDotL > 0.0 && dot(btsShadeNormal, btsShadeNormal) > 0.5) {
+            // Normal-mapped bumps; faces turned away from the light stay unlit.
+            nDotL = max(dot(btsShadeNormal, btsLightDir), 0.0);
+        }
         if (material == MAT_LEAVES) {
             nDotL = mix(nDotL, 1.0, LEAF_TRANSLUCENCY);
         }
@@ -181,7 +259,7 @@ vec3 computeLight(vec2 lightCoord, vec2 emissive, vec3 relPos, vec3 geoNormal, i
     ambient += sunLightColor() * sunVisibility() * BOUNCE_LIGHT * facingDown * sky * sky;
     float directVis = directVisibility(relPos, geoNormal, material, sky);
     btsDirectOut = directVis;
-    vec3 direct = activeLightColor(btsLightIsSun == 1) * directVis;
+    vec3 direct = activeLightColor(btsLightIsSun == 1) * directVis * btsShadowTint;
     vec3 scene = ambient + direct;
     vec3 block = blockLm * BLOCKLIGHT_STRENGTH * BLOCKLIGHT_TINT;
 

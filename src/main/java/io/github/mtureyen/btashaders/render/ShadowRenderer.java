@@ -78,6 +78,7 @@ public class ShadowRenderer {
 	private static final int GL_FRAMEBUFFER_COMPLETE = 36053;
 	private static final int GL_DEPTH_BUFFER_BIT = 256;
 	private static final int GL_TEXTURE0 = 33984;
+	private static final float[] WHITE = {1.0F, 1.0F, 1.0F, 1.0F};
 
 	private final Minecraft mc;
 	private final Shader shadowShader = new Shader();
@@ -123,6 +124,17 @@ public class ShadowRenderer {
 	private final Vector3d cameraPos = new Vector3d();
 	private final Vector3f scratch = new Vector3f();
 	private final Map<RenderRegion<?>, IntBuffer[]> regionBatches = new HashMap<>();
+	/** Same, for the translucent layer (water, tinted glass): drawn into the colored shadow map. */
+	private final Map<RenderRegion<?>, IntBuffer[]> translucentBatches = new HashMap<>();
+
+	// Colored shadows: a second depth map that also holds translucent casters (copy of the opaque
+	// depth + translucents on top), and the color of the nearest translucent caster. A receiver that
+	// is lit in the opaque map but shadowed in this one sits behind glass or under water.
+	private int translucentFbo = 0;
+	private int translucentDepth = 0;
+	private int shadowColor = 0;
+	private boolean translucentReady = false;
+	private boolean coloredShadowsValid = false;
 
 	public ShadowRenderer(Minecraft mc) {
 		this.mc = mc;
@@ -144,6 +156,11 @@ public class ShadowRenderer {
 	 * isn't one of ours (they know the shadow-map distortion) is swapped for the null shader, so name
 	 * tags, lines etc. don't leave stray shadows.
 	 */
+	/** True while entities are drawn into the shadow map. */
+	public static boolean isEntityPass() {
+		return entityPass;
+	}
+
 	public static Shader substituteShader(Shader shader) {
 		if (!entityPass || instance == null || !instance.nullShader.isEnabled()) {
 			return shader;
@@ -292,12 +309,46 @@ public class ShadowRenderer {
 		int status = GL41.glCheckFramebufferStatus(GL_FRAMEBUFFER);
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		this.ready = status == GL_FRAMEBUFFER_COMPLETE;
+		this.createTranslucentFramebuffer();
 		if (this.ready) {
 			BtaShaders.LOGGER.info("Shadow map created ({}x{}).", this.resolution, this.resolution);
 		} else {
 			BtaShaders.LOGGER.error("Shadow framebuffer incomplete (status {}); shadows disabled.", status);
 		}
 		OpenGLHelper.checkError("btashaders shadow framebuffer");
+	}
+
+	private void createTranslucentFramebuffer() {
+		this.translucentDepth = GL41.glGenTextures();
+		GL41.glBindTexture(GL_TEXTURE_2D, this.translucentDepth);
+		GL41.glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, this.resolution, this.resolution, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0L);
+		setPlainParameters();
+		this.shadowColor = GL41.glGenTextures();
+		GL41.glBindTexture(GL_TEXTURE_2D, this.shadowColor);
+		GL41.glTexImage2D(GL_TEXTURE_2D, 0, GL41.GL_RGBA8, this.resolution, this.resolution, 0, GL41.GL_RGBA, GL41.GL_UNSIGNED_BYTE, 0L);
+		setPlainParameters();
+		GL41.glBindTexture(GL_TEXTURE_2D, 0);
+
+		this.translucentFbo = GL41.glGenFramebuffers();
+		GL41.glBindFramebuffer(GL_FRAMEBUFFER, this.translucentFbo);
+		GL41.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, this.translucentDepth, 0);
+		GL41.glFramebufferTexture2D(GL_FRAMEBUFFER, GL41.GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this.shadowColor, 0);
+		GL41.glDrawBuffer(GL41.GL_COLOR_ATTACHMENT0);
+		int status = GL41.glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		this.translucentReady = status == GL_FRAMEBUFFER_COMPLETE;
+		if (!this.translucentReady) {
+			BtaShaders.LOGGER.error("Colored shadow framebuffer incomplete (status {}); colored shadows disabled.", status);
+		}
+	}
+
+	/** Nearest filtering, clamp to a white border (outside the map = nothing in the way). */
+	private static void setPlainParameters() {
+		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		GL41.glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, new float[]{1.0F, 1.0F, 1.0F, 1.0F});
 	}
 
 	public void delete() {
@@ -313,6 +364,20 @@ public class ShadowRenderer {
 			GL41.glDeleteSamplers(this.compareSampler);
 			this.compareSampler = 0;
 		}
+		if (this.translucentFbo != 0) {
+			GL41.glDeleteFramebuffers(this.translucentFbo);
+			this.translucentFbo = 0;
+		}
+		if (this.translucentDepth != 0) {
+			GL41.glDeleteTextures(this.translucentDepth);
+			this.translucentDepth = 0;
+		}
+		if (this.shadowColor != 0) {
+			GL41.glDeleteTextures(this.shadowColor);
+			this.shadowColor = 0;
+		}
+		this.translucentReady = false;
+		this.coloredShadowsValid = false;
 		this.ready = false;
 		this.shadowMapValid = false;
 	}
@@ -330,6 +395,7 @@ public class ShadowRenderer {
 	public void render(float partialTicks) {
 		this.shadowMapValid = false;
 		this.lightValid = false;
+		this.coloredShadowsValid = false;
 		if (this.mc.currentWorld == null || this.mc.activeCamera == null) {
 			return;
 		}
@@ -355,7 +421,11 @@ public class ShadowRenderer {
 		this.updateMatrices();
 
 		OpenGLHelper.checkError("pre btashaders shadow pass");
-		this.collectChunks(terrain, chunks);
+		this.collectChunks(terrain, chunks, 0, this.regionBatches);
+		boolean colored = this.translucentReady && defineOn("COLORED_SHADOWS");
+		if (colored) {
+			this.collectChunks(terrain, chunks, 1, this.translucentBatches);
+		}
 
 		GLRenderer.pushFrame();
 		GL41.glBindFramebuffer(GL_FRAMEBUFFER, this.fbo);
@@ -376,8 +446,61 @@ public class ShadowRenderer {
 		this.shadowShader.bind();
 		this.applyCameraUniforms(this.shadowShader);
 
+		this.shadowShader.uniformInt("btsTranslucentPass", 0);
+		this.drawBatches(terrain, this.regionBatches);
+
+		if (this.entityShadowsEnabled()) {
+			GLRenderer.modelM4f().identity();
+			this.renderEntityShadows(partialTicks);
+		}
+
+		if (colored) {
+			this.renderTranslucentShadows(terrain);
+		}
+
+		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		GLRenderer.popFrame();
+		// popFrame restores the matrices but doesn't mark the Matrices UBO dirty; touch it so the
+		// main pass re-uploads the camera matrices instead of drawing with ours.
+		GLRenderer.projectionM4f();
+		GL41.glUseProgram(0);
+		OpenGLHelper.checkError("btashaders shadow pass");
+		this.shadowMapValid = true;
+	}
+
+	/**
+	 * Colored shadow map: start from a copy of the finished opaque depth, then draw the translucent
+	 * layer on top with depth test, writing each caster's transmitted color (water writes a marker;
+	 * receivers work out its absorption + caustics themselves).
+	 */
+	private void renderTranslucentShadows(TerrainRendererMultiDraw terrain) {
+		GL41.glBindFramebuffer(GL41.GL_READ_FRAMEBUFFER, this.fbo);
+		GL41.glBindFramebuffer(GL41.GL_DRAW_FRAMEBUFFER, this.translucentFbo);
+		GL41.glBlitFramebuffer(0, 0, this.resolution, this.resolution, 0, 0, this.resolution, this.resolution,
+			GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+		GL41.glBindFramebuffer(GL_FRAMEBUFFER, this.translucentFbo);
+		GL41.glClearBufferfv(GL41.GL_COLOR, 0, WHITE); // leaves BTA's clear color alone
+		if (!this.translucentBatches.isEmpty()) {
+			GL41.glActiveTexture(GL_TEXTURE0);
+			TextureRegistry.worldAtlas.bind();
+			GLRenderer.disableState(State.CULL_FACE);
+			GLRenderer.disableState(State.BLEND);
+			GLRenderer.enableState(State.DEPTH_TEST);
+			GLRenderer.setDepthMask(true);
+			GLRenderer.modelM4f().identity();
+			this.shadowShader.bind();
+			this.shadowShader.uniformInt("btsTranslucentPass", 1);
+			this.drawBatches(terrain, this.translucentBatches);
+			this.shadowShader.bind();
+			this.shadowShader.uniformInt("btsTranslucentPass", 0);
+		}
+		this.coloredShadowsValid = true;
+		OpenGLHelper.checkError("btashaders colored shadow pass");
+	}
+
+	private void drawBatches(TerrainRendererMultiDraw terrain, Map<RenderRegion<?>, IntBuffer[]> batches) {
 		TessellatorTerrainImpl.TerrainVertexConfig vertexConfig = null;
-		for (Map.Entry<RenderRegion<?>, IntBuffer[]> batch : this.regionBatches.entrySet()) {
+		for (Map.Entry<RenderRegion<?>, IntBuffer[]> batch : batches.entrySet()) {
 			IntBuffer positions = batch.getValue()[0];
 			IntBuffer sizes = batch.getValue()[1];
 			if (positions.limit() == 0) {
@@ -401,20 +524,11 @@ public class ShadowRenderer {
 		if (vertexConfig != null) {
 			vertexConfig.disable();
 		}
+	}
 
-		if (this.entityShadowsEnabled()) {
-			GLRenderer.modelM4f().identity();
-			this.renderEntityShadows(partialTicks);
-		}
-
-		GL41.glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		GLRenderer.popFrame();
-		// popFrame restores the matrices but doesn't mark the Matrices UBO dirty; touch it so the
-		// main pass re-uploads the camera matrices instead of drawing with ours.
-		GLRenderer.projectionM4f();
-		GL41.glUseProgram(0);
-		OpenGLHelper.checkError("btashaders shadow pass");
-		this.shadowMapValid = true;
+	private static boolean defineOn(String name) {
+		String setting = ShaderConfig.defines().get(name);
+		return setting == null || !setting.trim().equals("0");
 	}
 
 	private void updateLight(float partialTicks) {
@@ -512,8 +626,9 @@ public class ShadowRenderer {
 		this.shadowProjection.mul(this.shadowView, this.shadowMatrix);
 	}
 
-	private void collectChunks(TerrainRendererMultiDraw terrain, ChunkRenderer[] chunks) {
-		for (IntBuffer[] buffers : this.regionBatches.values()) {
+	private void collectChunks(TerrainRendererMultiDraw terrain, ChunkRenderer[] chunks, int layer,
+							   Map<RenderRegion<?>, IntBuffer[]> batches) {
+		for (IntBuffer[] buffers : batches.values()) {
 			buffers[0].clear();
 			buffers[1].clear();
 		}
@@ -522,7 +637,7 @@ public class ShadowRenderer {
 			if (!(chunk instanceof ChunkRendererMultiDraw multiDraw)) {
 				continue;
 			}
-			VertexBuffer.Entry<TessellatorTerrainImpl.TerrainVertexConfig> entry = multiDraw.renderListEntries[0];
+			VertexBuffer.Entry<TessellatorTerrainImpl.TerrainVertexConfig> entry = multiDraw.renderListEntries[layer];
 			if (entry == null || entry.size <= 0) {
 				continue;
 			}
@@ -538,7 +653,7 @@ public class ShadowRenderer {
 				continue;
 			}
 			RenderRegion<TessellatorTerrainImpl.TerrainVertexConfig> region = terrain.getRenderRegionAtBlockPos(pos.x, pos.z);
-			IntBuffer[] buffers = this.regionBatches.computeIfAbsent(region, r -> new IntBuffer[]{
+			IntBuffer[] buffers = batches.computeIfAbsent(region, r -> new IntBuffer[]{
 				BufferUtils.createIntBuffer(1024), BufferUtils.createIntBuffer(1024)});
 			if (!buffers[0].hasRemaining()) {
 				buffers[0] = grow(buffers[0]);
@@ -548,12 +663,12 @@ public class ShadowRenderer {
 			buffers[0].put((int) (entry.position / vertexSize));
 			buffers[1].put((int) (entry.size / vertexSize));
 		}
-		for (IntBuffer[] buffers : this.regionBatches.values()) {
+		for (IntBuffer[] buffers : batches.values()) {
 			buffers[0].flip();
 			buffers[1].flip();
 		}
 		// Regions can disappear when the world changes; drop empty ones so stale keys don't pile up.
-		this.regionBatches.values().removeIf(b -> b[0].limit() == 0);
+		batches.values().removeIf(b -> b[0].limit() == 0);
 	}
 
 	private static IntBuffer grow(IntBuffer buffer) {
@@ -582,6 +697,7 @@ public class ShadowRenderer {
 		shader.uniformFloat("btsShadowTexel", 1.0F / this.resolution);
 		shader.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / this.resolution);
 		shader.uniformFloat("btsShadowDepthSpan", 2.0F * DEPTH_RANGE);
+		shader.uniformInt("btsColoredShadowsOn", this.coloredShadowsValid ? 1 : 0);
 	}
 
 	/** Camera position split for float precision: fract (block centers) and mod 1024 (waving phase). */
@@ -614,6 +730,18 @@ public class ShadowRenderer {
 
 	public int getDepthTexture() {
 		return this.depthTexture;
+	}
+
+	public boolean isColoredShadowsValid() {
+		return this.coloredShadowsValid;
+	}
+
+	public int getTranslucentDepthTexture() {
+		return this.translucentDepth;
+	}
+
+	public int getShadowColorTexture() {
+		return this.shadowColor;
 	}
 
 	public boolean isShadowMapValid() {

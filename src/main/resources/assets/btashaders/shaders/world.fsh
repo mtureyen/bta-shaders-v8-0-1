@@ -34,10 +34,21 @@ uniform sampler2D lighttex;
 #include "lib/gbuffer.glsl"
 
 uniform int btsShadowPass; // 1 while rendering into the shadow map: depth only, alpha-tested
+uniform int btsPrecipitation; // 1 while BTA draws rain/snow
 
 void main() {
     if (btsShadowPass == 1) {
         if (texture(colortex, TexCoord).a < 0.5) discard;
+        return;
+    }
+    if (btsPrecipitation == 1) {
+        // Rain/snow: light, see-through streaks lit like the sky around them (BTA passes full light
+        // levels, so the lightmap carries day/night + weather), never shaded like a solid wall.
+        vec4 tex = texture(colortex, TexCoord);
+        vec3 sky = texture(lighttex, LightMapCoord).rgb;
+        vec4 streak = tex * Color * uColor * vec4(sky * 1.1, PRECIPITATION_OPACITY);
+        FragColor = computeFog(streak);
+        if (FragColor.a < uAlphaTest) discard;
         return;
     }
     vec3 geoNormal = geometricNormal(RelPos);

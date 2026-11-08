@@ -60,6 +60,9 @@ public final class ShaderOptions {
 			ShaderOption.slider("PCSS_SOFTNESS", "Penumbra Width", 0.0F, 0.1F, 0.005F),
 			ShaderOption.slider("PCSS_MAX_RADIUS", "Max Penumbra", 2.0F, 16.0F, 0.5F),
 			ShaderOption.toggle("ENTITY_SHADOWS", "Entity Shadows"),
+			ShaderOption.toggle("COLORED_SHADOWS", "Colored Shadows"),
+			ShaderOption.toggle("CAUSTICS", "Water Caustics"),
+			ShaderOption.slider("CAUSTICS_STRENGTH", "Caustics Strength", 0.0F, 2.0F, 0.05F),
 			ShaderOption.slider("CLOUD_SHADOW_STRENGTH", "Cloud Shadows", 0.0F, 1.0F, 0.05F),
 			ShaderOption.toggle("SSAO", "Ambient Occlusion"),
 			ShaderOption.samples("SSAO_SAMPLES", "AO Samples", 4, 16),
@@ -93,6 +96,10 @@ public final class ShaderOptions {
 			ShaderOption.toggle("RAIN_PUDDLES", "Puddles"),
 			ShaderOption.slider("PUDDLE_COVERAGE", "Puddle Coverage", 0.0F, 1.0F, 0.05F),
 			ShaderOption.toggle("RAIN_RIPPLES", "Rain Ripples"),
+			ShaderOption.slider("RIPPLE_STRENGTH", "Ripple Strength", 0.0F, 3.0F, 0.1F),
+			ShaderOption.toggle("LABPBR", "Resource Pack PBR"),
+			ShaderOption.slider("NORMAL_MAP_STRENGTH", "Normal Map Strength", 0.0F, 2.0F, 0.05F),
+			ShaderOption.slider("PBR_EMISSION", "PBR Emission", 0.0F, 4.0F, 0.1F),
 			ShaderOption.toggle("WAVING_PLANTS", "Waving Plants"),
 			ShaderOption.toggle("WAVING_LEAVES", "Waving Leaves"),
 			ShaderOption.slider("WAVING_STRENGTH", "Waving Strength", 0.0F, 2.0F, 0.05F)
@@ -173,6 +180,7 @@ public final class ShaderOptions {
 				v.put("FOLIAGE_SHADOW_SAMPLES", 8F);
 				v.put("PCSS", 0F);
 				v.put("ENTITY_SHADOWS", 0F);
+				v.put("COLORED_SHADOWS", 0F);
 				v.put("SSAO", 0F);
 				v.put("CLOUD_STEPS", 8F);
 				v.put("VOLUMETRIC_LIGHT", 0F);
@@ -189,6 +197,7 @@ public final class ShaderOptions {
 				v.put("ENTITY_SHADOWS", 1F);
 				v.put("SSAO", 1F);
 				v.put("SSAO_SAMPLES", 6F);
+				v.put("COLORED_SHADOWS", 1F);
 				v.put("CLOUD_STEPS", 10F);
 				v.put("VOLUMETRIC_LIGHT", 1F);
 				v.put("VL_STEPS", 8F);
@@ -200,7 +209,7 @@ public final class ShaderOptions {
 			case HIGH -> {
 				// The shader defaults.
 				for (String key : new String[]{"shadow.resolution", "SHADOW_SAMPLES", "FOLIAGE_SHADOW_SAMPLES",
-					"PCSS", "ENTITY_SHADOWS", "SSAO", "SSAO_SAMPLES", "CLOUD_STEPS", "VOLUMETRIC_LIGHT",
+					"PCSS", "ENTITY_SHADOWS", "COLORED_SHADOWS", "SSAO", "SSAO_SAMPLES", "CLOUD_STEPS", "VOLUMETRIC_LIGHT",
 					"VL_STEPS", "REFLECTIONS", "SSR_STEPS", "WATER_SSR_STEPS", "RAIN_PUDDLES"}) {
 					ShaderOption option = find(key);
 					if (option != null) {
@@ -216,6 +225,7 @@ public final class ShaderOptions {
 				v.put("ENTITY_SHADOWS", 1F);
 				v.put("SSAO", 1F);
 				v.put("SSAO_SAMPLES", 12F);
+				v.put("COLORED_SHADOWS", 1F);
 				v.put("CLOUD_STEPS", 20F);
 				v.put("VOLUMETRIC_LIGHT", 1F);
 				v.put("VL_STEPS", 20F);

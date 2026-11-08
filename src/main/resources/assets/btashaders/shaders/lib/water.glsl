@@ -1,4 +1,4 @@
-// Water shading for the translucent terrain pass. Needs: lib/settings.glsl, lib/lighting.glsl,
+// Water shading for the translucent terrain pass. Needs: lib/settings.glsl, lib/lighting.glsl, lib/surface.glsl,
 // lib/fog.glsl, the Matrices block, uViewPortSize, frameTimeCounter, btsCameraMod.
 // The opaque scene was copied right before the translucent pass, so water can look "through" itself
 // (refraction + absorption) and reflect what's on screen (SSR), Complementary/Photon style.
@@ -84,6 +84,12 @@ vec3 shadeWater(vec3 relPos, vec3 geoNormal, vec3 waterBase, float sky, float di
     vec3 world = relPos + btsCameraMod;
     bool topSurface = geoNormal.y > 0.5;
     vec3 n = topSurface ? waterNormal(world.xz, frameTimeCounter) : geoNormal;
+#if RAIN_RIPPLES
+    if (topSurface && btsRain > 0.01 && sky > 0.9) {
+        vec2 ripple = rainRipples(world.xz, frameTimeCounter) * btsRain * 0.6;
+        n = normalize(n + vec3(ripple.x, 0.0, ripple.y));
+    }
+#endif
     vec3 v = normalize(-relPos);
     bool underwater = btsEyeInWater == 1;
     if (underwater) n = -n;

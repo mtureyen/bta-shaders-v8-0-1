@@ -21,6 +21,13 @@ public final class LightingState {
 	public static final int OPAQUE_DEPTH_UNIT = 6;
 	/** Same shadow map without the compare sampler (PCSS blocker search). */
 	public static final int SHADOW_RAW_UNIT = 7;
+	/** Colored shadows: opaque + translucent depth (compare), same raw, and the casters' color. */
+	public static final int SHADOW_TRANSLUCENT_UNIT = 8;
+	public static final int SHADOW_TRANSLUCENT_RAW_UNIT = 9;
+	public static final int SHADOW_COLOR_UNIT = 10;
+	/** labPBR atlas layers (PbrAtlas). */
+	public static final int PBR_NORMAL_UNIT = 11;
+	public static final int PBR_SPECULAR_UNIT = 12;
 
 	private static final int GL_TEXTURE0 = 33984;
 
@@ -50,6 +57,13 @@ public final class LightingState {
 		shader.uniformInt("btsOpaqueColor", OPAQUE_COLOR_UNIT);
 		shader.uniformInt("btsOpaqueDepth", OPAQUE_DEPTH_UNIT);
 		shader.uniformInt("btsShadowDepthRaw", SHADOW_RAW_UNIT);
+		shader.uniformInt("btsShadowTexTranslucent", SHADOW_TRANSLUCENT_UNIT);
+		shader.uniformInt("btsShadowDepthTranslucent", SHADOW_TRANSLUCENT_RAW_UNIT);
+		shader.uniformInt("btsShadowColor", SHADOW_COLOR_UNIT);
+		shader.uniformInt("btsColoredShadowsOn", 0);
+		shader.uniformInt("btsNormalTex", PBR_NORMAL_UNIT);
+		shader.uniformInt("btsSpecularTex", PBR_SPECULAR_UNIT);
+		shader.uniformInt("btsPbrOn", 0);
 		shader.uniformInt("btsLightingOn", OFF);
 		shader.uniformInt("btsShadowsOn", 0);
 		shader.uniformInt("btsWaterPass", 0);
@@ -74,6 +88,25 @@ public final class LightingState {
 			GL41.glBindSampler(SHADOW_UNIT, this.shadows.getCompareSampler());
 			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_RAW_UNIT);
 			GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getDepthTexture());
+			if (this.shadows.isColoredShadowsValid()) {
+				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_TRANSLUCENT_UNIT);
+				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getTranslucentDepthTexture());
+				GL41.glBindSampler(SHADOW_TRANSLUCENT_UNIT, this.shadows.getCompareSampler());
+				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_TRANSLUCENT_RAW_UNIT);
+				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getTranslucentDepthTexture());
+				GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_COLOR_UNIT);
+				GL41.glBindTexture(GL41.GL_TEXTURE_2D, this.shadows.getShadowColorTexture());
+			}
+			GL41.glActiveTexture(GL_TEXTURE0);
+		}
+		int pbrNormal = PbrAtlas.texture(PbrAtlas.NORMAL_LAYER);
+		int pbrSpecular = PbrAtlas.texture(PbrAtlas.SPECULAR_LAYER);
+		boolean pbr = pbrNormal != 0 && pbrSpecular != 0;
+		if (pbr) {
+			GL41.glActiveTexture(GL_TEXTURE0 + PBR_NORMAL_UNIT);
+			GL41.glBindTexture(GL41.GL_TEXTURE_2D, pbrNormal);
+			GL41.glActiveTexture(GL_TEXTURE0 + PBR_SPECULAR_UNIT);
+			GL41.glBindTexture(GL41.GL_TEXTURE_2D, pbrSpecular);
 			GL41.glActiveTexture(GL_TEXTURE0);
 		}
 		for (Shader shader : litShaders()) {
@@ -82,6 +115,7 @@ public final class LightingState {
 			}
 			shader.bind();
 			this.shadows.applyUniforms(shader);
+			shader.uniformInt("btsPbrOn", pbr ? 1 : 0);
 			shader.uniformInt("btsEyeInWater", eyeInWater ? 1 : 0);
 			shader.uniformInt("btsSkyFog", skyFog && !eyeInWater ? 1 : 0);
 		}
@@ -112,6 +146,7 @@ public final class LightingState {
 		this.setMode(OFF);
 		this.setSkyFog(false); // GUI rendering (inventory icons etc.) keeps BTA's own fog color
 		GL41.glBindSampler(SHADOW_UNIT, 0);
+		GL41.glBindSampler(SHADOW_TRANSLUCENT_UNIT, 0);
 	}
 
 	public void setMode(int mode) {

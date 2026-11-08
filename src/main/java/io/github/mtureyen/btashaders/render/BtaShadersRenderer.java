@@ -115,6 +115,21 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		return r != null && r.mc.renderer == r ? r : null;
 	}
 
+	/** Around BTA's rain/snow draw (world shader, see world.fsh). glProgramUniform: BTA's bound program stays. */
+	public static void setPrecipitation(boolean on) {
+		Shader shader = Shaders.WORLD;
+		if (active() == null || !shader.isEnabled()) {
+			return;
+		}
+		int location = shader.getUniform("btsPrecipitation");
+		if (location >= 0) {
+			GL41.glProgramUniform1i(shader.id(), location, on ? 1 : 0);
+		}
+		// Streaks must not write depth: our sky is filled in behind depth == 1 pixels later, and rain
+		// that claims those pixels would show up as dark bars against the sky.
+		GLRenderer.setDepthMask(!on);
+	}
+
 	public ShadowRenderer getShadows() {
 		return this.shadows;
 	}
@@ -254,6 +269,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		FrameState f = this.frame;
 		f.matricesCaptured = false;
 		f.setSize(this.renderWidth, this.renderHeight);
+		EntityMotion.beginFrame(f.frameIndex, this.enabled && this.taaActive() && this.gbuffer.isValid());
 		if (this.enabled) {
 			this.profiler.begin(GpuProfiler.Section.SHADOW);
 			this.shadows.render(partialTicks);
@@ -335,7 +351,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		// TAA; its output is also next frame's history.
 		if (this.taaActive() && f.matricesCaptured) {
 			this.profiler.begin(GpuProfiler.Section.TAA);
-			scene = this.taa.run(f, worldColor, worldDepth, scene);
+			scene = this.taa.run(f, worldColor, worldDepth, scene, this.gbuffer);
 			this.profiler.end(GpuProfiler.Section.TAA);
 		} else {
 			this.taa.invalidate();
@@ -415,6 +431,11 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	public void applySettings() {
 		this.reload();
 		Shaders.reload(); // recompiles the world shaders, incl. ours
+		// labPBR layers live in the block atlas: rebuild it when the setting flipped.
+		boolean pbrLoaded = PbrAtlas.texture(PbrAtlas.NORMAL_LAYER) != 0;
+		if (pbrLoaded != PbrAtlas.wanted() && this.mc.textureManager != null) {
+			this.mc.textureManager.refreshTexturesAndDisplayErrors();
+		}
 	}
 
 	@Override

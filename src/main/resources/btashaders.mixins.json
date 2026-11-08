@@ -7,8 +7,10 @@
   },
   "mixins": [],
   "client": [
+    "AtlasStitcherMixin",
     "ChunkRendererAccessor",
     "ChunkRendererMultiDrawMixin",
+    "EntityRendererDispatcherMixin",
     "EntityRendererMixin",
     "GLRendererMixin",
     "HudIngameMixin",
