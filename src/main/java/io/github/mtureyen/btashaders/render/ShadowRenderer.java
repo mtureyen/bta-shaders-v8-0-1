@@ -58,9 +58,6 @@ public class ShadowRenderer {
 	// from the rotating texel grid is hidden instead by shadow distortion (more resolution near the
 	// player, see shadow.vsh / terrain.fsh) and noise-rotated soft filtering.
 
-	/** Texture unit the terrain shader samples the shadow map from (BTA uses 0-3). */
-	public static final int SHADOW_TEXTURE_UNIT = 4;
-
 	private static final int GL_TEXTURE_2D = 3553;
 	private static final int GL_FRAMEBUFFER = 36160;
 	private static final int GL_DEPTH_ATTACHMENT = 36096;
@@ -247,6 +244,9 @@ public class ShadowRenderer {
 
 		GL41.glActiveTexture(GL_TEXTURE0);
 		TextureRegistry.worldAtlas.bind();
+		// Waving plants/leaves must move identically in the shadow pass.
+		this.shadowShader.bind();
+		this.applyCameraUniforms(this.shadowShader);
 
 		TessellatorTerrainImpl.TerrainVertexConfig vertexConfig = null;
 		for (Map.Entry<RenderRegion<?>, IntBuffer[]> batch : this.regionBatches.entrySet()) {
@@ -415,52 +415,44 @@ public class ShadowRenderer {
 	// ---------------------------------------------------------------------------------------------
 	// Receiving side: called around the main solid terrain draw
 
-	/** Binds the shadow map and uploads shadow uniforms to the terrain shader. */
-	public void beginReceive(boolean enabled) {
-		Shader terrain = Shaders.TERRAIN;
-		if (!terrain.isEnabled()) {
-			return;
-		}
-		boolean lighting = enabled && this.lightValid;
-		boolean on = lighting && this.shadowMapValid;
-		terrain.bind();
-		terrain.uniformInt("btsLightingOn", lighting ? 1 : 0);
-		terrain.uniformInt("btsShadowsOn", on ? 1 : 0);
-		if (lighting) {
-			terrain.uniformVec3f("btsLightDir", this.lightDirection);
-			terrain.uniformVec3f("btsDirectColor", this.directColor);
-			terrain.uniformVec3f("btsAmbientTint", this.ambientTint);
-			terrain.uniformFloat("btsRain", this.rain);
-			terrain.uniformInt("btsLightIsSun", this.lightIsSun ? 1 : 0);
-			terrain.uniformVec3f("btsCameraFract",
-				(float) (this.cameraPos.x - Math.floor(this.cameraPos.x)),
-				(float) (this.cameraPos.y - Math.floor(this.cameraPos.y)),
-				(float) (this.cameraPos.z - Math.floor(this.cameraPos.z)));
-		}
-		if (on) {
-			GL41.glActiveTexture(GL_TEXTURE0 + SHADOW_TEXTURE_UNIT);
-			GL41.glBindTexture(GL_TEXTURE_2D, this.depthTexture);
-			GL41.glBindSampler(SHADOW_TEXTURE_UNIT, this.compareSampler);
-			GL41.glActiveTexture(GL_TEXTURE0);
-			terrain.uniformInt("btsShadowTex", SHADOW_TEXTURE_UNIT);
-			terrain.uniformMat4f("btsShadowMatrix", this.shadowMatrix);
-			terrain.uniformFloat("btsShadowStrength", this.shadowStrength);
-			terrain.uniformFloat("btsShadowTexel", 1.0F / RESOLUTION);
-			terrain.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / RESOLUTION);
-		}
+	/** Uploads this frame's light + shadow uniforms to a (bound) lit shader. See LightingState. */
+	public void applyUniforms(Shader shader) {
+		shader.uniformInt("btsShadowsOn", this.shadowMapValid ? 1 : 0);
+		shader.uniformVec3f("btsLightDir", this.lightDirection);
+		shader.uniformVec3f("btsDirectColor", this.directColor);
+		shader.uniformVec3f("btsAmbientTint", this.ambientTint);
+		shader.uniformFloat("btsRain", this.rain);
+		shader.uniformInt("btsLightIsSun", this.lightIsSun ? 1 : 0);
+		shader.uniformFloat("btsSunHeight", this.sunHeight);
+		this.applyCameraUniforms(shader);
+		shader.uniformMat4f("btsShadowMatrix", this.shadowMatrix);
+		shader.uniformFloat("btsShadowStrength", this.shadowStrength);
+		shader.uniformFloat("btsShadowTexel", 1.0F / RESOLUTION);
+		shader.uniformFloat("btsShadowWorldTexel", (2.0F * DISTANCE) / RESOLUTION);
 	}
 
-	/** Turns shadow lookups back off so other users of the terrain shader (GUI, held blocks) are unaffected. */
-	public void endReceive() {
-		Shader terrain = Shaders.TERRAIN;
-		if (!terrain.isEnabled()) {
-			return;
-		}
-		terrain.bind();
-		terrain.uniformInt("btsShadowsOn", 0);
-		terrain.uniformInt("btsLightingOn", 0);
-		// Unbind the compare sampler so nothing else that uses this unit gets depth-compare behaviour.
-		GL41.glBindSampler(SHADOW_TEXTURE_UNIT, 0);
+	/** Camera position split for float precision: fract (block centers) and mod 1024 (waving phase). */
+	private void applyCameraUniforms(Shader shader) {
+		shader.uniformVec3f("btsCameraFract",
+			(float) (this.cameraPos.x - Math.floor(this.cameraPos.x)),
+			(float) (this.cameraPos.y - Math.floor(this.cameraPos.y)),
+			(float) (this.cameraPos.z - Math.floor(this.cameraPos.z)));
+		shader.uniformVec3f("btsCameraMod",
+			(float) (this.cameraPos.x - Math.floor(this.cameraPos.x / 1024.0) * 1024.0),
+			(float) (this.cameraPos.y - Math.floor(this.cameraPos.y / 1024.0) * 1024.0),
+			(float) (this.cameraPos.z - Math.floor(this.cameraPos.z / 1024.0) * 1024.0));
+	}
+
+	public int getCompareSampler() {
+		return this.compareSampler;
+	}
+
+	public Matrix4f getShadowMatrix() {
+		return this.shadowMatrix;
+	}
+
+	public float getSunHeight() {
+		return this.sunHeight;
 	}
 
 	public int getDepthTexture() {

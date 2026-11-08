@@ -1,4 +1,5 @@
 #version 410 core
+// Shared fullscreen-triangle-strip vertex shader for our post passes.
 layout (location = 0) in vec2 aPos;
 layout (location = 1) in vec2 aTexCoords;
 

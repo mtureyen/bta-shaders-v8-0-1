@@ -1,5 +1,10 @@
 #version 410 core
-// BTA Shaders terrain vertex shader: BTA 8.0.1 terrain.vsh plus shadow coordinates.
+// BTA Shaders terrain vertex shader (based on BTA 8.0.1's terrain.vsh).
+// The vertex normal bytes carry material ID / top-vertex flag / emission (MaterialContext.java);
+// normals for lighting come from the geometry in the fragment shader.
+
+#include "lib/settings.glsl"
+#include "lib/materials.glsl"
 
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aColor;
@@ -15,20 +20,18 @@ layout (std140) uniform Matrices {
     mat4 viewInv;
 } matrices;
 
-uniform mat4 normalTransform;
-uniform vec4 lightModelAmbient;
-uniform vec4 lightSourcePosition1;
-uniform vec4 lightSourcePosition2;
-uniform vec4 lightSourceDiffuse1;
-uniform vec4 lightSourceDiffuse2;
+uniform float frameTimeCounter;
+uniform vec3 btsCameraMod;
+
+#include "lib/waving.glsl"
 
 out vec4 Color;
 out float Shade;
 out vec2 TexCoord;
 out vec2 LightMapCoord;
-out vec3 Light;
-out vec4 Norm;
-out vec3 RelPos; // camera-relative world position
+out vec3 RelPos;
+flat out int Material;
+out float Emission;
 
 vec2 unpackLightCoord(vec2 lightShade) {
     int asInt = int(lightShade.y);
@@ -40,20 +43,15 @@ float unpackShade(vec2 lightShade) {
 }
 
 void main() {
-    Norm = normalize(normalTransform * model * vec4(aNormal, 0));
-    float dir1 = max(0.0, dot(Norm, lightSourcePosition1));
-    float dir2 = max(0.0, dot(Norm, lightSourcePosition2));
-    Light = (lightModelAmbient + lightSourceDiffuse1 * (dir1 + dir2)).xyz;
-
+    Material = decodeMaterial(aNormal);
+    Emission = decodeEmission(aNormal);
     Color = vec4(aColor, 1);
     Shade = unpackShade(aLightShade);
     TexCoord = aUV;
     LightMapCoord = unpackLightCoord(aLightShade);
 
-    vec4 relPos = model * vec4(aPos, 1); // camera-relative world position
-    gl_Position = matrices.projection * matrices.view * relPos;
-
-    // Shadow lookup happens per fragment (terrain.fsh) using the geometric normal; the vertex
-    // normal can't be trusted (crossed plants inherit whatever normal the previous block set).
-    RelPos = relPos.xyz;
+    vec3 relPos = (model * vec4(aPos, 1)).xyz; // camera-relative world position
+    relPos = applyWaving(relPos, Material, decodeTopVertex(aNormal));
+    RelPos = relPos;
+    gl_Position = matrices.projection * matrices.view * vec4(relPos, 1.0);
 }

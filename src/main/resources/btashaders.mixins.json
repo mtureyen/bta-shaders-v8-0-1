@@ -8,10 +8,13 @@
   "mixins": [],
   "client": [
     "ChunkRendererAccessor",
+    "ChunkRendererMultiDrawMixin",
     "MinecraftMixin",
     "RenderGlobalAccessor",
     "ShadersMixin",
     "TerrainRendererMultiDrawMixin",
+    "TessellatorTerrainImplMixin",
+    "WorldRendererHandMixin",
     "WorldRendererMixin"
   ]
 }
