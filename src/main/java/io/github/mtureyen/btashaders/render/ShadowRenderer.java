@@ -317,7 +317,7 @@ public class ShadowRenderer {
 		this.shadowMapValid = false;
 	}
 
-	static void bindUniformBlocks(Shader shader) {
+	public static void bindUniformBlocks(Shader shader) {
 		for (UniformBlock<?> block : UniformBlockManager.nameToBlockMap.values()) {
 			shader.uniformBlockBinding(block.name, block.index);
 		}

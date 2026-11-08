@@ -11,6 +11,7 @@
     "ChunkRendererMultiDrawMixin",
     "EntityRendererMixin",
     "GLRendererMixin",
+    "HudIngameMixin",
     "MinecraftMixin",
     "RenderGlobalAccessor",
     "RenderGlobalSkyMixin",
