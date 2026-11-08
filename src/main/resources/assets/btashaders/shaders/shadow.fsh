@@ -4,6 +4,7 @@
 // the light this caster lets through. Water writes alpha 0 as a marker: receivers compute its
 // absorption from the water depth and add caustics (lib/lighting.glsl).
 
+#include "lib/settings.glsl"
 #include "lib/materials.glsl"
 
 layout (location = 0) out vec4 ShadowColor;
@@ -35,6 +36,15 @@ void main() {
     bool diagonal = len > 0.0 && abs(n.x / len) > 0.3 && abs(n.z / len) > 0.3;
     if (Material == MAT_PLANT || diagonal) {
         discard;
+    }
+    // Semi-transparent glass-like blocks (ice: alpha ~0.62 everywhere) would pass the cut-out test and
+    // cast a solid shadow. Dither them instead: drop a share of texels matching their transparency;
+    // the soft shadow filter averages that into a light shadow.
+    if (Material == MAT_TRANSLUCENT && tex.a > 0.05 && tex.a < 0.95) {
+        float h = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (h > tex.a * TRANSLUCENT_SHADOW_OPACITY) discard;
+        ShadowColor = vec4(1.0);
+        return;
     }
     // Cut-out holes (leaves) let light through.
     if (tex.a < 0.5) {

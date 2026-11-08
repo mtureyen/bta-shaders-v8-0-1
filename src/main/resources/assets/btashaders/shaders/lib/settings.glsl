@@ -134,6 +134,9 @@
 #ifndef PCSS_BLOCKER_SAMPLES
 #define PCSS_BLOCKER_SAMPLES 6
 #endif
+#ifndef TRANSLUCENT_SHADOW_OPACITY
+#define TRANSLUCENT_SHADOW_OPACITY 0.5 // shadow of semi-transparent blocks like ice, per unit of their alpha
+#endif
 #ifndef ENTITY_SHADOWS
 #define ENTITY_SHADOWS 1
 #endif
@@ -322,6 +325,15 @@
 #endif
 #ifndef VL_STRENGTH
 #define VL_STRENGTH 0.06
+#endif
+#ifndef UNDERWATER_VL_STRENGTH
+#define UNDERWATER_VL_STRENGTH 4.0   // light shafts under water, relative to VL_STRENGTH
+#endif
+#ifndef UNDERWATER_VL_DISTANCE
+#define UNDERWATER_VL_DISTANCE 32.0
+#endif
+#ifndef UNDERWATER_VL_TINT
+#define UNDERWATER_VL_TINT vec3(0.30, 0.75, 0.85) // color of sunlight that came through water
 #endif
 #ifndef GODRAY_SAMPLES
 #define GODRAY_SAMPLES 40

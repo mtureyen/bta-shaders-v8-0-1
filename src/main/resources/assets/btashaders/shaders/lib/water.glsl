@@ -102,6 +102,11 @@ vec3 shadeWater(vec3 relPos, vec3 geoNormal, vec3 waterBase, float sky, float di
         opaqueDepth = texture(btsOpaqueDepth, refrUV).r;
     }
     vec3 below = texture(btsOpaqueColor, refrUV).rgb;
+    if (opaqueDepth >= 1.0) {
+        // Open sky behind the water (looking up from below): the opaque copy is taken before our sky is
+        // drawn, so those pixels are still black. Use the sky itself.
+        below = skyReflectionColor(normalize(relPos)) * mix(0.15, 1.0, sky);
+    }
     float thickness = opaqueDepth >= 1.0 ? 64.0 : max(linearDepth(opaqueDepth) - waterLin, 0.0);
     if (underwater) thickness = 0.0; // looking up through the surface: no extra absorption here
     vec3 transmittance = exp(-thickness * WATER_ABSORPTION * vec3(0.30, 0.09, 0.06));

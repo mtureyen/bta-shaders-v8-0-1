@@ -92,8 +92,20 @@ public final class TonemapPass {
 		s.uniformInt("btsShadowsOn", shadowsValid ? 1 : 0);
 		s.uniformMat4f("btsShadowMatrix", shadows.getShadowMatrix());
 		s.uniformFloat("btsShadowStrength", shadows.getShadowStrength());
+		// Colored shadows: light shafts through tinted glass / water take on their color.
+		boolean colored = shadowsValid && shadows.isColoredShadowsValid();
+		GL41.glActiveTexture(PassUtil.GL_TEXTURE0 + LightingState.SHADOW_TRANSLUCENT_UNIT);
+		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, colored ? shadows.getTranslucentDepthTexture() : 0);
+		GL41.glBindSampler(LightingState.SHADOW_TRANSLUCENT_UNIT, colored ? shadows.getCompareSampler() : 0);
+		GL41.glActiveTexture(PassUtil.GL_TEXTURE0 + LightingState.SHADOW_COLOR_UNIT);
+		GL41.glBindTexture(PassUtil.GL_TEXTURE_2D, colored ? shadows.getShadowColorTexture() : 0);
+		GL41.glActiveTexture(PassUtil.GL_TEXTURE0);
+		s.uniformInt("btsShadowTexTranslucent", LightingState.SHADOW_TRANSLUCENT_UNIT);
+		s.uniformInt("btsShadowColor", LightingState.SHADOW_COLOR_UNIT);
+		s.uniformInt("btsColoredShadowsOn", colored ? 1 : 0);
 		ShaderHelper.drawFullscreenRect();
 		GL41.glBindSampler(LightingState.OPAQUE_COLOR_UNIT, 0);
+		GL41.glBindSampler(LightingState.SHADOW_TRANSLUCENT_UNIT, 0);
 		profiler.end(GpuProfiler.Section.TONEMAP);
 		return this.mapped.getTexture();
 	}
