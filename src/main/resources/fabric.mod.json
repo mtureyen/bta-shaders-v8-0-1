@@ -3,13 +3,13 @@
 	"id": "btashaders",
 	"version": "${version}",
 	"name": "BTA Shaders",
-	"description": "Shader pipeline mod for Better than Adventure! 8.0.1: shadow maps, G-buffers and composite passes.",
+	"description": "Warm, sunny shaders for Better than Adventure! 8.0.1: soft sun shadows, light shafts, volumetric clouds, water and rain reflections, colored glass shadows, labPBR support. Settings: Mod Menu or Shift+F7.",
 	"authors": [
 		"mtureyen"
 	],
 	"contact": {
-		"homepage": "",
-		"sources": ""
+		"homepage": "https://github.com/mtureyen/bta-shaders-v8-0-1",
+		"sources": "https://github.com/mtureyen/bta-shaders-v8-0-1"
 	},
 	"icon": "icon.png",
 	"license": "GPL-3.0-only",
