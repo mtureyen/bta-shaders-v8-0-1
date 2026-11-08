@@ -34,7 +34,9 @@ vec3 skyReflectionColor(vec3 dir) {
     // BTA's fog color is its horizon sky color; brighten towards the zenith a bit.
     vec3 horizon = fogState.color.rgb;
     vec3 zenith = horizon * vec3(0.75, 0.85, 1.05);
-    return mix(horizon, zenith, clamp(dir.y, 0.0, 1.0));
+    vec3 fallback = mix(horizon, zenith, clamp(dir.y, 0.0, 1.0));
+    // With our own sky active (btsSkyFog), reflect that sky instead of BTA's fog color.
+    return btsSkyFog == 1 ? toGamma(skyColor(normalize(vec3(dir.x, max(dir.y, 0.02), dir.z)))) : fallback;
 }
 
 // Screen-space reflection against the opaque scene. Returns rgb + hit confidence in a.
@@ -114,6 +116,6 @@ vec3 shadeWater(vec3 relPos, vec3 geoNormal, vec3 waterBase, float sky, float di
 
     // Sun glint.
     float spec = pow(max(dot(r, btsLightDir), 0.0), 220.0);
-    color += btsDirectColor * spec * WATER_SPECULAR * directVis;
+    color += toGamma(activeLightColor(btsLightIsSun == 1)) * spec * WATER_SPECULAR * directVis;
     return color;
 }

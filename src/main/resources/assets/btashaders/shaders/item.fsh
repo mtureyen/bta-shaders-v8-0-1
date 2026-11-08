@@ -33,6 +33,7 @@ uniform sampler2D colormasktex;
 
 #include "lib/fog.glsl"
 #include "lib/lighting.glsl"
+#include "lib/sky.glsl"
 
 void main() {
     vec3 geoNormal = geometricNormal(RelPos);
@@ -45,7 +46,7 @@ void main() {
     vec4 c = vec4(mix(vec3(1, 1, 1), Color.rgb, maskColor.r), 1) * uColor;
 
     vec4 postColor = texColor * c * lightColor;
-    vec4 litColor = vec4(postColor.rgb * clamp(Light, 0, 1), postColor.a);
+    vec4 litColor = vec4(postColor.rgb * faceShading(Light, geoNormal), postColor.a);
 
     FragColor = computeFog(litColor);
     if (FragColor.a < uAlphaTest) {

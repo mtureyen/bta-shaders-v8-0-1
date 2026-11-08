@@ -2,10 +2,14 @@
 // Needs before inclusion: lib/settings.glsl, lib/materials.glsl, uniform sampler2D lighttex,
 // uniform float uLightMapStrength.
 //
-// Light model (Complementary-style split, tuned to keep BTA's look):
-//   ambient = BTA lightmap with part of the sky light removed, tinted like the sky
-//             (keeps BTA's day/night curve, torch color, brightness setting, dimensions)
-//   direct  = sun/moon color * N.L * (1 - shadow) * sky^8   (no sun where there's no open sky)
+// HDR light model (Complementary-style), computed in LINEAR space and returned gamma-encoded so the
+// rest of each shader (albedo * light) stays as in BTA:
+//   BTA's lightmap is additive (sky part + torch part, then gamma), so we split it:
+//     skyLm   = lightmap(block 0, sky s)          BTA's sky brightness: time of day, weather,
+//                                                 brightness setting, dimension, lightning
+//     blockLm = lightmap(b, 0) - lightmap(0, 0)   BTA's torch color + falloff
+//   scene  = skyLm luminance * atmosphere sky hue  +  sun/moon (HDR) * N.L * shadow * sky^8
+//   light  = sqrt(scene^2 + block^2 + min^2)      quadrature sum (no blow-out where sun meets torch)
 
 uniform int btsLightingOn;          // 0 = stock BTA lighting, 1 = world, 2 = first-person hand
 uniform int btsShadowsOn;
@@ -14,12 +18,10 @@ uniform float btsShadowStrength;
 uniform float btsShadowTexel;       // 1 / shadow map resolution
 uniform float btsShadowWorldTexel;  // one shadow texel in blocks (before distortion)
 uniform mat4 btsShadowMatrix;       // camera-relative position -> shadow clip space
-uniform vec3 btsLightDir;           // towards the sun/moon
-uniform vec3 btsDirectColor;        // sun/moon color * intensity
-uniform vec3 btsAmbientTint;
 uniform vec3 btsCameraFract;        // fract(camera position)
-uniform float btsRain;
 uniform int btsEyeInWater;
+
+#include "lib/atmosphere.glsl"
 
 float distortFactor(vec2 clipXY) {
     return length(clipXY) * SHADOW_DISTORT + (1.0 - SHADOW_DISTORT);
@@ -109,11 +111,20 @@ float directVisibility(vec3 relPos, vec3 geoNormal, int material, float sky) {
     }
     float sky2 = sky * sky;
     float sky8 = sky2 * sky2 * sky2 * sky2;
-    return nDotL * (1.0 - shadowAmount(relPos, geoNormal, foliage, sky)) * sky8;
+    float vis = nDotL * (1.0 - shadowAmount(relPos, geoNormal, foliage, sky)) * sky8;
+    // Subsurface: thin foliage always lets some sunlight through, even inside its own (or a
+    // neighbouring) canopy's shadow. Keeps trees green instead of black.
+    if (material == MAT_LEAVES) {
+        vis = max(vis, LEAF_SUBSURFACE * sky8);
+    } else if (foliage) {
+        vis = max(vis, PLANT_SUBSURFACE * sky8);
+    }
+    return vis;
 }
 
 // lightCoord: BTA lightmap coordinates (x = block light, y = sky light); emissive: from emissivetex.
 // material: MAT_* (use MAT_DEFAULT when unknown; plants are also detected from the geometry).
+// Returns the light multiplier, gamma-encoded, may exceed 1 (HDR).
 vec3 computeLight(vec2 lightCoord, vec2 emissive, vec3 relPos, vec3 geoNormal, int material) {
     vec2 coord = max(lightCoord, emissive);
     vec3 stock = texture(lighttex, coord).rgb;
@@ -123,15 +134,44 @@ vec3 computeLight(vec2 lightCoord, vec2 emissive, vec3 relPos, vec3 geoNormal, i
     if (material == MAT_DEFAULT && btsLightingOn == 1 && isDiagonalFace(geoNormal)) {
         material = MAT_PLANT;
     }
+    const float MIN_COORD = 0.5 / 16.0;
     float sky = skyFactor(lightCoord.y);
-    float ambientSky = max(mix(0.5 / 16.0, lightCoord.y, AMBIENT_SKY_LIGHT), emissive.y);
-    vec3 ambientTint = mix(vec3(1.0), btsAmbientTint, sky * AMBIENT_TINT_STRENGTH) * mix(vec3(1.0), AMBIENT_WARMTH, sky);
-    vec3 ambient = texture(lighttex, vec2(coord.x, ambientSky)).rgb * ambientTint;
-    vec3 light = ambient + btsDirectColor * SUN_TINT * DIRECT_LIGHT_STRENGTH * directVisibility(relPos, geoNormal, material, sky);
+
+    // Split BTA's (additive) lightmap into its parts, in linear space.
+    vec3 minLm = toLinear(texture(lighttex, vec2(MIN_COORD)).rgb);
+    vec3 skyLm = toLinear(texture(lighttex, vec2(MIN_COORD, coord.y)).rgb);
+    vec3 blockLm = max(toLinear(texture(lighttex, vec2(coord.x, MIN_COORD)).rgb) - minLm, 0.0);
+    float skyBrightness = max(dot(skyLm - minLm, vec3(0.2126, 0.7152, 0.0722)), 0.0);
+
+    vec3 ambient = skyBrightness * ambientSkyHue() * AMBIENT_STRENGTH;
+    // Bounce light: sunlit ground reflects warm light onto sides and undersides.
+    float facingDown = btsLightingOn == 2 ? 0.5 : clamp(0.5 - 0.5 * geoNormal.y, 0.0, 1.0);
+    ambient += sunLightColor() * sunVisibility() * BOUNCE_LIGHT * facingDown * sky * sky;
+    vec3 direct = activeLightColor(btsLightIsSun == 1) * directVisibility(relPos, geoNormal, material, sky);
+    vec3 scene = ambient + direct;
+    vec3 block = blockLm * BLOCKLIGHT_STRENGTH * BLOCKLIGHT_TINT;
+
+    vec3 light = sqrt(scene * scene + block * block) + minLm * MIN_LIGHT;
+    vec3 result = toGamma(light);
     if (material == MAT_EMISSIVE || material == MAT_LAVA) {
-        light = max(light, stock); // glowing blocks never get darker than stock
+        result = max(result, stock); // glowing blocks never get darker than stock
     }
-    return light;
+    return result;
+}
+
+// Face shading. Stock: BTA's fixed two-light shading. With our lighting, real sunlight already
+// shades by direction, so BTA's (strong: bottoms ~50%) shading on top would darken twice; use a mild
+// up/down gradient instead (Complementary does the same with vanilla's).
+vec3 faceShading(vec3 btaLight, vec3 geoNormal) {
+    if (btsLightingOn == 0) {
+        return clamp(btaLight, 0.0, 1.0);
+    }
+    return vec3(mix(FACE_SHADE_BOTTOM, 1.0, geoNormal.y * 0.5 + 0.5));
+}
+
+// BTA's baked per-vertex shade (corner darkening), softened under our lighting.
+float bakedShade(float shade) {
+    return btsLightingOn == 0 ? shade : mix(1.0, shade, BAKED_SHADE_STRENGTH);
 }
 
 // BTA's fixed two-light directional shading, computed from the geometric normal (the vertex

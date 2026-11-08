@@ -33,7 +33,8 @@ public final class LightingState {
 
 	/** The BTA world shaders we replace with our lit versions (see ShadersMixin). */
 	public static Shader[] litShaders() {
-		return new Shader[]{Shaders.TERRAIN, Shaders.ENTITY, Shaders.WORLD, Shaders.ITEM};
+		// color_world isn't lit, but needs the sun/sky uniforms for its sky-colored fog.
+		return new Shader[]{Shaders.TERRAIN, Shaders.ENTITY, Shaders.WORLD, Shaders.ITEM, Shaders.COLOR_WORLD};
 	}
 
 	/**
@@ -57,10 +58,11 @@ public final class LightingState {
 	 * Lighting itself stays off until {@link #enterWorldGeometry()} (the sky is drawn first and must stay
 	 * stock).
 	 */
-	public void beginWorld(boolean enabled, boolean eyeInWater) {
+	public void beginWorld(boolean enabled, boolean eyeInWater, boolean skyFog) {
 		this.ready = false;
 		this.setMode(OFF);
 		if (!enabled || !this.shadows.isLightValid()) {
+			this.setSkyFog(false);
 			return;
 		}
 		if (this.shadows.isShadowMapValid()) {
@@ -76,9 +78,20 @@ public final class LightingState {
 			shader.bind();
 			this.shadows.applyUniforms(shader);
 			shader.uniformInt("btsEyeInWater", eyeInWater ? 1 : 0);
+			shader.uniformInt("btsSkyFog", skyFog && !eyeInWater ? 1 : 0);
 		}
 		GL41.glUseProgram(0);
 		this.ready = true;
+	}
+
+	private void setSkyFog(boolean on) {
+		for (Shader shader : litShaders()) {
+			if (shader.isEnabled()) {
+				shader.bind();
+				shader.uniformInt("btsSkyFog", on ? 1 : 0);
+			}
+		}
+		GL41.glUseProgram(0);
 	}
 
 	/** Start of the solid terrain draw: everything from here on (terrain, entities, water, hand) is lit. */
@@ -92,6 +105,7 @@ public final class LightingState {
 	public void endWorld() {
 		this.ready = false;
 		this.setMode(OFF);
+		this.setSkyFog(false); // GUI rendering (inventory icons etc.) keeps BTA's own fog color
 		GL41.glBindSampler(SHADOW_UNIT, 0);
 	}
 

@@ -18,6 +18,7 @@ import net.minecraft.client.render.shader.framebuffer.FrameBufferSingleSample;
 import net.minecraft.client.render.shader.framebuffer.FrameBufferTexture;
 import net.minecraft.client.render.shader.framebuffer.FrameBufferTextureSingleSample;
 import net.minecraft.client.render.window.GameWindowGLFW;
+import net.minecraft.client.render.worldtype.WorldTypeFXDispatcher;
 import net.minecraft.core.block.material.Materials;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
@@ -84,16 +85,22 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private final Shader taaShader = new Shader();
 	private final Shader prepareShader = new Shader();
 	private final Shader copyShader = new Shader();
+	private final Shader tonemapShader = new Shader();
+	private final BloomRenderer bloom = new BloomRenderer();
+	private final ExposureRenderer exposure = new ExposureRenderer();
+	private final ColorTarget mapped = new ColorTarget(ColorTarget.GL_RGBA16F);
 	private final ShadowRenderer shadows;
 	private final LightingState lighting;
 
 	private FrameBuffer postBuffer = null;
 	private int postWidth = -1;
 	private int postHeight = -1;
-	private final ColorTarget prepared = new ColorTarget(ColorTarget.GL_RGBA16F);
+	private final ColorTarget prepared = new ColorTarget(ColorTarget.GL_RGBA16F, true); // mips: eye adaptation
 	private final OpaqueCopy opaqueCopy = new OpaqueCopy();
 	private final FullscreenQuad quad = new FullscreenQuad();
 	private boolean waterPassActive = false;
+	/** This frame: BTA's sky dome is suppressed and our sky + clouds are drawn instead. */
+	private boolean ownSky = false;
 
 	// TAA
 	private final ColorTarget[] history = {new ColorTarget(ColorTarget.GL_RGBA16F), new ColorTarget(ColorTarget.GL_RGBA16F)};
@@ -281,8 +288,52 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		if (this.enabled) {
 			this.shadows.render(partialTicks);
 		}
-		this.lighting.beginWorld(this.enabled, this.isEyeInWater(partialTicks));
+		this.ownSky = this.enabled && this.prepareShader.isEnabled() && this.tonemapShader.isEnabled()
+			&& Shaders.COLOR_WORLD.isEnabled() && this.mc.currentWorld != null
+			&& WorldTypeFXDispatcher.getInstance().getDispatch(this.mc.currentWorld.getWorldType()).hasSky();
+		this.lighting.beginWorld(this.enabled, this.isEyeInWater(partialTicks), this.ownSky);
 		super.beginRenderWorld(partialTicks);
+		if (this.ownSky) {
+			// Sky pixels must start black: only BTA's sun/moon/stars land there; our sky goes behind
+			// them in the prepare pass. (BTA clears to its fog color right after this.)
+			GL41.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
+		}
+	}
+
+	/** RenderGlobal.renderSky HEAD/RETURN: our color_world shader draws BTA's sky dome transparent. */
+	public void setSkyMode(boolean inSky) {
+		Shader shader = Shaders.COLOR_WORLD;
+		if (!shader.isEnabled()) {
+			return;
+		}
+		int program = GL41.glGetInteger(GL41.GL_CURRENT_PROGRAM);
+		shader.bind();
+		shader.uniformInt("btsSkyMode", inSky && this.ownSky ? 1 : 0);
+		GL41.glUseProgram(program);
+	}
+
+	public boolean isOwnSkyActive() {
+		return this.ownSky;
+	}
+
+	public boolean isOwnCloudsActive() {
+		return this.ownSky;
+	}
+
+	private void setCloudUniforms(Shader shader) {
+		Vector3d cam = this.cameraPos;
+		shader.uniformVec3f("btsCameraMod",
+			(float) (cam.x - Math.floor(cam.x / 1024.0) * 1024.0),
+			(float) (cam.y - Math.floor(cam.y / 1024.0) * 1024.0),
+			(float) (cam.z - Math.floor(cam.z / 1024.0) * 1024.0));
+		shader.uniformFloat("btsCameraY", (float) cam.y);
+		float cloudHeight = 128.0F;
+		if (this.mc.currentWorld != null) {
+			cloudHeight = WorldTypeFXDispatcher.getInstance().getDispatch(this.mc.currentWorld.getWorldType())
+				.getCloudHeight(this.mc.currentWorld) + 0.33F;
+		}
+		shader.uniformFloat("btsCloudHeight", cloudHeight);
+		shader.uniformInt("btsCloudsOn", this.ownSky ? 1 : 0);
 	}
 
 	private boolean isEyeInWater(float partialTicks) {
@@ -310,10 +361,17 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		FrameBufferAttachment worldColor = Objects.requireNonNull(worldOut.getAttachment(FrameBuffer.AttachmentType.COLOR));
 		FrameBufferAttachment worldDepth = Objects.requireNonNull(worldOut.getAttachment(FrameBuffer.AttachmentType.DEPTH));
 
-		// Pass 0: prepare (SSAO + tone map) -> prepared. Falls back to the raw world color.
+		// Pass 0: prepare (SSAO, HDR) -> prepared. Falls back to the raw world color.
 		int sceneTexture = -1;
 		if (this.prepareShader.isEnabled() && this.matricesCaptured) {
 			sceneTexture = this.runPrepare(worldColor, worldDepth);
+		}
+
+		// Pass 0b: bloom chain + tone map (atmosphere effects in HDR, Lottes curve) -> mapped (LDR).
+		boolean tonemapped = false;
+		if (this.tonemapShader.isEnabled()) {
+			sceneTexture = this.runTonemap(worldColor, sceneTexture, worldDepth);
+			tonemapped = true;
 		}
 
 		// Pass 1: TAA. Output (resolved color) also becomes next frame's history.
@@ -342,6 +400,10 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			if (this.taaActive() && this.historyValid) {
 				// TAA already anti-aliases; FXAA on top only blurs the image a second time.
 				this.postShader.uniformBool("fxaa", false);
+			}
+			if (tonemapped) {
+				// Our HDR bloom replaces BTA's LDR one.
+				this.postShader.uniformInt("bloom", 0);
 			}
 			ShaderHelper.drawFullscreenRect();
 			postRan = true;
@@ -375,7 +437,6 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		GL41.glActiveTexture(GL_TEXTURE0);
 		ShaderHelper.setUniforms(this.mc, this.compositeShader, partialTicks);
 		this.compositeShader.uniformBool("btsDebugShadowMap", showShadowMap);
-		this.setCompositeUniforms();
 		ShaderHelper.drawFullscreenRect();
 
 		LightmapHelper.instance.enableLightmapRendering();
@@ -401,14 +462,19 @@ public class BtaShadersRenderer extends ShadersRenderer {
 	private int runPrepare(FrameBufferAttachment worldColor, FrameBufferAttachment worldDepth) {
 		this.prepared.ensureSize(this.renderWidth, this.renderHeight);
 		this.prepared.bindForWriting();
-		this.prepareShader.bind();
+		Shader shader = this.prepareShader;
+		ShaderHelper.setUniforms(this.mc, shader, this.mc.timer.partialTicks); // binds; time, eye in liquid
 		GL41.glActiveTexture(GL_TEXTURE0);
 		worldColor.bindForOutput();
-		this.prepareShader.uniformInt("colortex0", 0);
+		shader.uniformInt("colortex0", 0);
 		GL41.glActiveTexture(GL_TEXTURE0 + 1);
 		worldDepth.bindForOutput();
-		this.prepareShader.uniformInt("depthtex0", 1);
+		shader.uniformInt("depthtex0", 1);
 		GL41.glActiveTexture(GL_TEXTURE0);
+		// Sky + clouds: sun/rain state, view inverse; then the jittered projection for depth reconstruction.
+		this.setAtmosphereUniforms(shader);
+		this.setCloudUniforms(shader);
+		shader.uniformInt("btsOwnSky", this.ownSky ? 1 : 0);
 		this.prepareShader.uniformMat4f("btsProjInv", new Matrix4f(this.projectionJittered).invert());
 		this.prepareShader.uniformMat4f("btsProj", this.projectionJittered);
 		this.prepareShader.uniformVec2f("btsViewSize", this.renderWidth, this.renderHeight);
@@ -455,7 +521,51 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		return write.getTexture();
 	}
 
-	private void setCompositeUniforms() {
+	private int runTonemap(FrameBufferAttachment worldColor, int sceneTexture, FrameBufferAttachment worldDepth) {
+		// Eye adaptation measures the prepared HDR scene through its mip chain.
+		int exposureTexture = -1;
+		if (this.exposure.isAvailable() && sceneTexture == this.prepared.getTexture()) {
+			this.prepared.generateMipmaps();
+			exposureTexture = this.exposure.update(this.prepared);
+		}
+
+		int bloomTexture = -1;
+		if (this.bloom.isAvailable()) {
+			int src = sceneTexture;
+			if (src < 0) {
+				src = worldColor.getId(); // no prepare pass: bloom straight from the world color
+			}
+			bloomTexture = this.bloom.render(src, this.renderWidth, this.renderHeight);
+		}
+
+		this.mapped.ensureSize(this.renderWidth, this.renderHeight);
+		this.mapped.bindForWriting();
+		Shader shader = this.tonemapShader;
+		shader.bind();
+		GL41.glActiveTexture(GL_TEXTURE0);
+		bindScene(worldColor, sceneTexture);
+		shader.uniformInt("colortex0", 0);
+		GL41.glActiveTexture(GL_TEXTURE0 + 1);
+		worldDepth.bindForOutput();
+		shader.uniformInt("depthtex0", 1);
+		GL41.glActiveTexture(GL_TEXTURE0 + 2);
+		GL41.glBindTexture(GL_TEXTURE_2D, Math.max(bloomTexture, 0));
+		shader.uniformInt("btsBloom", 2);
+		GL41.glActiveTexture(GL_TEXTURE0 + 3);
+		GL41.glBindTexture(GL_TEXTURE_2D, Math.max(exposureTexture, 0));
+		shader.uniformInt("btsExposure", 3);
+		GL41.glActiveTexture(GL_TEXTURE0);
+		shader.uniformInt("btsBloomOn", bloomTexture >= 0 ? 1 : 0);
+		shader.uniformInt("btsExposureOn", exposureTexture >= 0 ? 1 : 0);
+		shader.uniformFloat("btsBloomScale", 1.0F / BloomRenderer.LEVELS);
+		shader.uniformVec2f("btsViewSize", this.renderWidth, this.renderHeight);
+		ShaderHelper.setUniforms(this.mc, shader, this.mc.timer.partialTicks);
+		this.setAtmosphereUniforms(shader);
+		ShaderHelper.drawFullscreenRect();
+		return this.mapped.getTexture();
+	}
+
+	private void setAtmosphereUniforms(Shader shader) {
 		boolean worldValid = this.shadows.isLightValid() && this.matricesCaptured;
 		float strength = 0.0F;
 		float sunU = 0.5F;
@@ -477,23 +587,17 @@ public class BtaShadersRenderer extends ShadersRenderer {
 				float off = Math.max(Math.abs(sunU - 0.5F), Math.abs(sunV - 0.5F));
 				strength *= 1.0F - smoothstep(0.6F, 1.1F, off);
 			}
-			this.compositeShader.uniformMat4f("btsProjInv", new Matrix4f(this.projection).invert());
-			this.compositeShader.uniformMat4f("btsViewInv", new Matrix4f(this.view).invert());
-			this.compositeShader.uniformVec3f("btsLightDir", this.shadows.getLightDirection());
-			this.compositeShader.uniformFloat("btsSunHeight", this.shadows.getSunHeight());
-			this.compositeShader.uniformFloat("btsRain", this.shadows.getRain());
+			// The tonemap pass runs on the TAA-stable (un-jittered) image grid.
+			shader.uniformMat4f("btsProjInv", new Matrix4f(this.projection).invert());
+			shader.uniformMat4f("btsViewInv", new Matrix4f(this.view).invert());
+			shader.uniformVec3f("btsLightDir", this.shadows.getLightDirection());
+			shader.uniformInt("btsLightIsSun", this.shadows.isLightSun() ? 1 : 0);
+			shader.uniformFloat("btsSunHeight", this.shadows.getSunHeight());
+			shader.uniformFloat("btsRain", this.shadows.getRain());
 		}
-		Vector3f color = new Vector3f(this.shadows.getDirectColor());
-		float max = Math.max(color.x, Math.max(color.y, color.z));
-		if (max > 0.0001F) {
-			color.div(max); // hue only
-		} else {
-			color.set(1.0F);
-		}
-		this.compositeShader.uniformInt("btsWorldValid", worldValid ? 1 : 0);
-		this.compositeShader.uniformVec2f("btsSunScreen", sunU, sunV);
-		this.compositeShader.uniformFloat("btsGodRayStrength", strength);
-		this.compositeShader.uniformVec3f("btsGodRayColor", color);
+		shader.uniformInt("btsWorldValid", worldValid ? 1 : 0);
+		shader.uniformVec2f("btsSunScreen", sunU, sunV);
+		shader.uniformFloat("btsGodRayStrength", strength);
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -507,6 +611,7 @@ public class BtaShadersRenderer extends ShadersRenderer {
 
 		if (pressed(handle, KEY_TOGGLE, 0) && inWorld) {
 			this.enabled = !this.enabled;
+			this.exposure.invalidate();
 			this.historyValid = false;
 			BtaShaders.LOGGER.info("BTA Shaders {}", this.enabled ? "enabled" : "disabled (stock BTA rendering)");
 		}
@@ -559,8 +664,11 @@ public class BtaShadersRenderer extends ShadersRenderer {
 		compileOrWarn(this.taaShader, "taa", "TAA disabled");
 		compileOrWarn(this.prepareShader, "prepare", "no SSAO / tone mapping");
 		compileOrWarn(this.copyShader, "copy", "no water reflections/refraction");
-		if (this.compositeShader.isEnabled()) {
-			ShadowRenderer.bindUniformBlocks(this.compositeShader);
+		compileOrWarn(this.tonemapShader, "tonemap", "no HDR tone mapping / bloom / atmosphere effects");
+		this.bloom.reload();
+		this.exposure.reload();
+		if (this.tonemapShader.isEnabled()) {
+			ShadowRenderer.bindUniformBlocks(this.tonemapShader);
 		}
 		if (this.copyShader.isEnabled()) {
 			this.copyShader.bind();
@@ -596,6 +704,9 @@ public class BtaShadersRenderer extends ShadersRenderer {
 			target.delete();
 		}
 		this.prepared.delete();
+		this.mapped.delete();
+		this.bloom.delete();
+		this.exposure.delete();
 		this.opaqueCopy.delete();
 		this.quad.delete();
 		this.historyValid = false;

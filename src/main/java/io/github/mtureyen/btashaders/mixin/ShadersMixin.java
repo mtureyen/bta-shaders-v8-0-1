@@ -20,7 +20,7 @@ import java.util.Set;
  */
 @Mixin(value = Shaders.class, remap = false)
 public abstract class ShadersMixin {
-	private static final Set<String> OURS = Set.of("terrain", "entity", "world", "item");
+	private static final Set<String> OURS = Set.of("terrain", "entity", "world", "item", "color_world");
 
 	@Redirect(
 		method = {"init", "reload"},

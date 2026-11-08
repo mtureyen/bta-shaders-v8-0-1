@@ -43,6 +43,7 @@ uniform sampler2D colormasktex;
 
 #include "lib/fog.glsl"
 #include "lib/lighting.glsl"
+#include "lib/sky.glsl"
 #include "lib/water.glsl"
 
 void main() {
@@ -59,10 +60,10 @@ void main() {
     vec4 c = vec4(mix(vec3(1, 1, 1), Color.rgb, maskColor.r), 1) * uColor;
 
     float shadeEffect = 1 - max(emissiveBrightness.x, emissiveBrightness.y);
-    float s = mix(1, Shade, shadeEffect);
+    float s = mix(1, bakedShade(Shade), shadeEffect);
 
     vec4 postColor = texColor * c * vec4(s, s, s, 1) * lightColor;
-    vec4 litColor = vec4(postColor.rgb * clamp(btaLight, 0, 1), postColor.a);
+    vec4 litColor = vec4(postColor.rgb * faceShading(btaLight, geoNormal), postColor.a);
 
     if (btsWaterPass == 1 && btsLightingOn == 1 && Material == MAT_WATER) {
         float sky = skyFactor(LightMapCoord.y);

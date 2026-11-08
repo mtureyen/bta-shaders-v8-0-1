@@ -1,27 +1,100 @@
 // BTA Shaders tunables. Override any of these in .minecraft/config/btashaders.properties with
 // define.NAME=value, or edit here in the dev client and press F7.
 
-// ---- Lighting ----
-#ifndef AMBIENT_SKY_LIGHT
-#define AMBIENT_SKY_LIGHT 0.84       // sky light kept as ambient (rest comes from direct sun)
+// ---- Lighting (HDR, linear; colors themselves live in lib/atmosphere.glsl) ----
+#ifndef SUN_BRIGHTNESS
+#define SUN_BRIGHTNESS 1.0           // direct sunlight (noon ~1.1 luminance, ~2.5x the shade)
 #endif
-#ifndef DIRECT_LIGHT_STRENGTH
-#define DIRECT_LIGHT_STRENGTH 1.15
+#ifndef MOON_BRIGHTNESS
+#define MOON_BRIGHTNESS 1.0
+#endif
+#ifndef AMBIENT_STRENGTH
+#define AMBIENT_STRENGTH 0.40        // sky light in the shade: lower = deeper shadows
+#endif
+#ifndef AMBIENT_HUE_STRENGTH
+#define AMBIENT_HUE_STRENGTH 1.0     // how much the sky colors the shade (blue by day): 0 = neutral
+#endif
+#ifndef BLOCKLIGHT_STRENGTH
+#define BLOCKLIGHT_STRENGTH 1.1      // torches, lava, glowstone
+#endif
+#ifndef BLOCKLIGHT_TINT
+#define BLOCKLIGHT_TINT vec3(1.0, 0.88, 0.74)
+#endif
+#ifndef MIN_LIGHT
+#define MIN_LIGHT 1.0                // BTA's minimum (cave) light
+#endif
+#ifndef FACE_SHADE_BOTTOM
+#define FACE_SHADE_BOTTOM 0.70       // replaces BTA's fixed face shading (top 1.0, sides ~0.85, bottom this)
+#endif
+#ifndef BAKED_SHADE_STRENGTH
+#define BAKED_SHADE_STRENGTH 0.7     // BTA's baked per-vertex corner darkening: 1 = as stock, 0 = off
+#endif
+#ifndef BOUNCE_LIGHT
+#define BOUNCE_LIGHT 0.10            // warm sunlight bounced off the ground onto sides/undersides
 #endif
 #ifndef HAND_NDOTL
 #define HAND_NDOTL 0.65              // how much direct light the first-person hand gets
 #endif
-#ifndef SUN_TINT
-#define SUN_TINT vec3(1.00, 0.86, 0.66)   // multiplies the direct sunlight color: golden
+#ifndef LEAF_SUBSURFACE
+#define LEAF_SUBSURFACE 0.28         // sunlight that passes through leaves even in shadow (subsurface)
 #endif
-#ifndef AMBIENT_TINT_STRENGTH
-#define AMBIENT_TINT_STRENGTH 0.35        // how much the sky tints shadows (blue): 0 = neutral
-#endif
-#ifndef AMBIENT_WARMTH
-#define AMBIENT_WARMTH vec3(1.04, 1.0, 0.94) // warm bounce light in shadows
+#ifndef PLANT_SUBSURFACE
+#define PLANT_SUBSURFACE 0.15        // same for grass/flowers
 #endif
 #ifndef LEAF_TRANSLUCENCY
 #define LEAF_TRANSLUCENCY 0.5        // leaves let light through: 0 = opaque, 1 = fully lit from behind
+#endif
+
+// ---- Sky (lib/sky.glsl) ----
+#ifndef SKY_ZENITH_DAY
+#define SKY_ZENITH_DAY vec3(0.09, 0.24, 0.72)   // deep blue overhead at noon (linear)
+#endif
+#ifndef SKY_HORIZON_DAY
+#define SKY_HORIZON_DAY vec3(0.42, 0.60, 0.90)  // lighter blue at the horizon
+#endif
+#ifndef SKY_SUN_GLOW
+#define SKY_SUN_GLOW 1.0
+#endif
+#ifndef SKY_BRIGHTNESS
+#define SKY_BRIGHTNESS 1.0
+#endif
+
+// ---- Clouds (lib/clouds.glsl) ----
+#ifndef CLOUDS
+#define CLOUDS 1
+#endif
+#ifndef CLOUD_COVERAGE
+#define CLOUD_COVERAGE 0.42          // fraction of the sky covered
+#endif
+#ifndef CLOUD_CELL
+#define CLOUD_CELL 16.0              // blocks per cloud cell (keep 1024 divisible by it)
+#endif
+#ifndef CLOUD_THICKNESS
+#define CLOUD_THICKNESS 10.0
+#endif
+#ifndef CLOUD_DENSITY
+#define CLOUD_DENSITY 0.9
+#endif
+#ifndef CLOUD_STEPS
+#define CLOUD_STEPS 14
+#endif
+#ifndef CLOUD_DISTANCE
+#define CLOUD_DISTANCE 700.0
+#endif
+#ifndef CLOUD_SPEED
+#define CLOUD_SPEED 0.6              // blocks per second
+#endif
+#ifndef CLOUD_SUN
+#define CLOUD_SUN 1.0                // how strongly the sun lights the clouds
+#endif
+#ifndef CLOUD_AMBIENT
+#define CLOUD_AMBIENT 1.5            // brightness of the clouds' shaded parts
+#endif
+#ifndef CLOUD_ROUNDNESS
+#define CLOUD_ROUNDNESS 0.06         // corner rounding of the cloud boxes (0.15 = blobby)
+#endif
+#ifndef CLOUD_BOTTOM_SHADE
+#define CLOUD_BOTTOM_SHADE 0.45      // brightness of cloud undersides relative to tops
 #endif
 
 // ---- Shadows ----
@@ -69,7 +142,7 @@
 #define WATER_REFRACTION 0.025
 #endif
 #ifndef WATER_WAVE_STRENGTH
-#define WATER_WAVE_STRENGTH 1.0
+#define WATER_WAVE_STRENGTH 0.6
 #endif
 #ifndef WATER_ABSORPTION
 #define WATER_ABSORPTION 1.0
@@ -89,15 +162,53 @@
 #define SSAO_RADIUS 0.7              // blocks
 #endif
 #ifndef SSAO_STRENGTH
-#define SSAO_STRENGTH 0.6
+#define SSAO_STRENGTH 0.4
 #endif
 
-// ---- Tone mapping (prepare pass) ----
-#ifndef TONEMAP_EXPOSURE
-#define TONEMAP_EXPOSURE 1.0
+// ---- Bloom (HDR glow of bright areas only, added on top) ----
+#ifndef BLOOM
+#define BLOOM 1
 #endif
-#ifndef TONEMAP_SHOULDER
-#define TONEMAP_SHOULDER 0.8         // values below this stay untouched; above roll off smoothly to 1
+#ifndef BLOOM_STRENGTH
+#define BLOOM_STRENGTH 0.35
+#endif
+#ifndef BLOOM_THRESHOLD
+#define BLOOM_THRESHOLD 0.9          // linear brightness where glow starts (sky ~0.7, sunlit ~0.5-1)
+#endif
+#ifndef BLOOM_KNEE
+#define BLOOM_KNEE 0.6               // soft transition around the threshold
+#endif
+
+// ---- Tone mapping (Lottes-style curve, linear in / gamma out) ----
+#ifndef TONEMAP_EXPOSURE
+#define TONEMAP_EXPOSURE 1.1
+#endif
+#ifndef AUTO_EXPOSURE
+#define AUTO_EXPOSURE 1              // eye adaptation: brighter in shade/indoors, normal in open sun
+#endif
+#ifndef AUTO_EXPOSURE_KEY
+#define AUTO_EXPOSURE_KEY 0.22       // target average (linear) scene brightness
+#endif
+#ifndef AUTO_EXPOSURE_STRENGTH
+#define AUTO_EXPOSURE_STRENGTH 0.5   // 0 = fixed exposure, 1 = full adaptation
+#endif
+#ifndef AUTO_EXPOSURE_MIN
+#define AUTO_EXPOSURE_MIN 0.75
+#endif
+#ifndef AUTO_EXPOSURE_MAX
+#define AUTO_EXPOSURE_MAX 1.4        // limit so caves/night don't turn into daylight
+#endif
+#ifndef AUTO_EXPOSURE_SPEED
+#define AUTO_EXPOSURE_SPEED 1.5      // adaptation speed (1/seconds)
+#endif
+#ifndef TONEMAP_CONTRAST
+#define TONEMAP_CONTRAST 1.15        // curve contrast ("a")
+#endif
+#ifndef TONEMAP_WHITE
+#define TONEMAP_WHITE 6.0            // input value that maps to white
+#endif
+#ifndef TONEMAP_SATURATION
+#define TONEMAP_SATURATION 1.15
 #endif
 
 // ---- Composite ----
@@ -126,7 +237,7 @@
 #define ATMOS_DENSITY 0.004          // aerial perspective (distant terrain picks up sky/sun color)
 #endif
 #ifndef ATMOS_STRENGTH
-#define ATMOS_STRENGTH 0.2
+#define ATMOS_STRENGTH 0.08
 #endif
 #ifndef WARMTH
 #define WARMTH 0.5                   // final white balance towards warm: 0 = neutral, 1 = strong

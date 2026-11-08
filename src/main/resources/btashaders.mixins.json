@@ -11,6 +11,7 @@
     "ChunkRendererMultiDrawMixin",
     "MinecraftMixin",
     "RenderGlobalAccessor",
+    "RenderGlobalSkyMixin",
     "ShadersMixin",
     "TerrainRendererMultiDrawMixin",
     "TessellatorTerrainImplMixin",

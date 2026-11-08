@@ -18,13 +18,43 @@ public final class ColorTarget {
 	private static final int GL_CLAMP_TO_EDGE = 33071;
 
 	private final int internalFormat;
+	private final boolean mipmapped;
 	private int texture = 0;
 	private int fbo = 0;
 	private int width = 0;
 	private int height = 0;
 
 	public ColorTarget(int internalFormat) {
+		this(internalFormat, false);
+	}
+
+	/** @param mipmapped allocate a mip chain (call {@link #generateMipmaps()} after rendering) */
+	public ColorTarget(int internalFormat, boolean mipmapped) {
 		this.internalFormat = internalFormat;
+		this.mipmapped = mipmapped;
+	}
+
+	public void generateMipmaps() {
+		if (!this.mipmapped || this.texture == 0) {
+			return;
+		}
+		GL41.glBindTexture(GL_TEXTURE_2D, this.texture);
+		GL41.glGenerateMipmap(GL_TEXTURE_2D);
+		GL41.glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	/** Index of the smallest mip level (0 if not mipmapped). */
+	public int maxMipLevel() {
+		if (!this.mipmapped) {
+			return 0;
+		}
+		int levels = 0;
+		int size = Math.max(this.width, this.height);
+		while (size > 1) {
+			size >>= 1;
+			levels++;
+		}
+		return levels;
 	}
 
 	/** (Re)creates the target if the size changed. Returns true if it was (re)created. */
@@ -38,8 +68,11 @@ public final class ColorTarget {
 		this.texture = GL41.glGenTextures();
 		GL41.glBindTexture(GL_TEXTURE_2D, this.texture);
 		GL41.glTexImage2D(GL_TEXTURE_2D, 0, this.internalFormat, width, height, 0, GL_RGBA, GL_FLOAT, 0L);
-		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MIN_FILTER, this.mipmapped ? GL41.GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		if (this.mipmapped) {
+			GL41.glGenerateMipmap(GL_TEXTURE_2D); // allocate the chain
+		}
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		GL41.glTexParameteri(GL_TEXTURE_2D, GL41.GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		GL41.glBindTexture(GL_TEXTURE_2D, 0);

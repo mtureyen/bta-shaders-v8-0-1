@@ -1,18 +1,26 @@
 #version 410 core
-// BTA Shaders prepare pass (before TAA): screen-space ambient occlusion + tone mapping of the HDR
-// world image. Its noise is rotated every frame; TAA averages it out.
+// BTA Shaders prepare pass (HDR, before bloom / eye adaptation / tone mapping):
+//   screen-space ambient occlusion, our sky behind BTA's sun/moon/stars, and the clouds.
+// Noise is rotated every frame; TAA averages it out.
 
 #include "lib/settings.glsl"
 
 in vec2 TexCoords;
 out vec4 FragColor;
 
-uniform sampler2D colortex0;   // HDR world color
+uniform sampler2D colortex0;   // HDR world color (sky pixels: only BTA's sun/moon/stars over black)
 uniform sampler2D depthtex0;   // world depth
 uniform mat4 btsProjInv;       // inverse (jittered) projection
 uniform mat4 btsProj;
+uniform mat4 btsViewInv;
 uniform vec2 btsViewSize;
 uniform float btsFrame;
+uniform float frameTimeCounter;
+uniform int btsOwnSky;         // 1 = BTA's sky dome was suppressed: draw ours here
+uniform int isEyeInLiquid;
+
+#include "lib/sky.glsl"
+#include "lib/clouds.glsl"
 
 #define HAND_DEPTH 0.07
 
@@ -46,16 +54,6 @@ float ambientOcclusion(vec3 p, vec3 n) {
     return clamp(ao, 0.0, 1.0);
 }
 
-// Identity below the shoulder, smooth exponential roll-off above it: keeps BTA's normal brightness
-// range looking exactly as before, but bright sunlit highlights no longer clip hard.
-vec3 tonemap(vec3 x) {
-    x *= TONEMAP_EXPOSURE;
-    float s = TONEMAP_SHOULDER;
-    vec3 over = max(x - s, 0.0);
-    vec3 rolled = s + (1.0 - s) * (1.0 - exp(-over / (1.0 - s)));
-    return mix(x, rolled, step(s, x));
-}
-
 void main() {
     vec3 color = texture(colortex0, TexCoords).rgb;
     float depth = texture(depthtex0, TexCoords).r;
@@ -70,5 +68,24 @@ void main() {
     }
 #endif
 
-    FragColor = vec4(tonemap(color), 1.0);
+    if (btsOwnSky == 1) {
+        vec3 relPos = (btsViewInv * vec4(p, 1.0)).xyz;
+        vec3 dir = normalize(relPos);
+        vec3 linear = toLinear(color);
+        if (depth >= 1.0) {
+            // Our sky behind whatever BTA drew there (sun, moon, stars, rainbow, aurora: additive).
+            linear += skyColor(dir);
+        }
+#if CLOUDS
+        if (depth > HAND_DEPTH && isEyeInLiquid == 0) {
+            float sceneDist = depth >= 1.0 ? 1e9 : length(relPos);
+            vec4 clouds = renderClouds(dir, sceneDist, gl_FragCoord.xy + mod(btsFrame, 64.0) * 7.0);
+            linear = linear * (1.0 - clouds.a) + clouds.rgb;
+        }
+#endif
+        color = toGamma(linear);
+    }
+
+    // Still HDR (gamma-encoded); bloom + tone mapping happen in the next passes.
+    FragColor = vec4(color, 1.0);
 }
