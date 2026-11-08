@@ -18,6 +18,13 @@ loom {
 	val btaChannel = libs.versions.btaChannel.get()
 	val btaVersion = (if (btaChannel == "nightly") "" else "v") + libs.versions.bta.get()
     customMinecraftMetadata.set("https://downloads.betterthanadventure.net/bta-client/${btaChannel}/$btaVersion/manifest.json")
+	// BTA Shaders dev workflow: the dev client reads shaders straight from src/, so editing a .fsh/.vsh
+	// and pressing F7 in-game reloads it without restarting.
+	runs {
+		named("client") {
+			vmArg("-Dbtashaders.devShaderDir=${project.file("src/main/resources/assets/btashaders/shaders").absolutePath}")
+		}
+	}
 }
 repositories {
     mavenCentral()
